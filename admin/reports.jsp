@@ -319,13 +319,13 @@
     <div class="container">
         <div class="sidebar">
             <h2>Quizefy System</h2>
-            <ul class="sidebar-menu">
-                <li><a href="index.html" class="active">Dashboard</a></li>
-                <li><a href="assessments.html">Manage Assessments</a></li>
-                <li><a href="manageTests.html">Manage Tests</a></li>
-                <li><a href="users.html">Manage Users</a></li>
-                <li><a href="reports.html">Performance Reports</a></li>
-                <li><a href="questions.html">Question Bank</a></li>
+             <ul class="sidebar-menu">
+                <li><a href="index.jsp" class="active">Dashboard</a></li>
+                <li><a href="assessments.jsp">Manage Assessments</a></li>
+                <li><a href="manageTests.jsp">Manage Tests</a></li>
+                <li><a href="users.jsp">Manage Users</a></li>
+                <li><a href="reports.jsp">Performance Reports</a></li>
+                <li><a href="questions.jsp">Question Bank</a></li>
             </ul>
         </div>
 

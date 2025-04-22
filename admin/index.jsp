@@ -1,51 +1,69 @@
-<%@ page import="model.Tests" %>
-<%@ page import="java.util.List" %>
-<%@ page import="java.util.ArrayList" %>
-
+<%@ page import="java.sql.*" %>
 <%
-    Connection conn = null;
-    List<Tests> recentTests = new ArrayList<>();
-    List<String[]> recentAssessments = new ArrayList<>();
     int userCount = 0;
     int recruiterCount = 0;
     int assessmentCount = 0;
+    String[] recentAssessments = new String[5];  // Store names of recent assessments
+    String[] recentAssessmentDates = new String[5];  // Store dates of recent assessments
+
+    String[] recentTestsTitles = new String[5];  // Store activities descriptions
+    String[] recentTestsassessmentid = new String[5]; 
+    String[] recentTeststargetDifficulty = new String[5]; 
+    String[] recentTestsDates = new String[5];  // Store activity dates
 
     try {
+        // Establish the database connection
         Class.forName("org.postgresql.Driver");
-        conn = DriverManager.getConnection(
-            "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway", 
-            "postgres", 
-            "TzRGIYmjwyLwlaZPPGoziHjOakANiumm"
+        Connection conn = DriverManager.getConnection(
+            "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway", "postgres", "TzRGIYmjwyLwlaZPPGoziHjOakANiumm"
         );
 
         Statement stmt = conn.createStatement();
 
-        // User counts
+        // Total users
         ResultSet rsUsers = stmt.executeQuery("SELECT COUNT(*) FROM users");
-        if (rsUsers.next()) userCount = rsUsers.getInt(1);
+        if (rsUsers.next()) {
+            userCount = rsUsers.getInt(1);
+        }
         rsUsers.close();
 
+        // Recruiters
         ResultSet rsRecruiters = stmt.executeQuery("SELECT COUNT(*) FROM users WHERE role = 'recruiter'");
-        if (rsRecruiters.next()) recruiterCount = rsRecruiters.getInt(1);
+        if (rsRecruiters.next()) {
+            recruiterCount = rsRecruiters.getInt(1);
+        }
         rsRecruiters.close();
 
-        ResultSet rsAssessmentsCount = stmt.executeQuery("SELECT COUNT(*) FROM assessments");
-        if (rsAssessmentsCount.next()) assessmentCount = rsAssessmentsCount.getInt(1);
-        rsAssessmentsCount.close();
+        // Assessments
+        ResultSet rsAssessments = stmt.executeQuery("SELECT COUNT(*) FROM assessments");
+        if (rsAssessments.next()) {
+            assessmentCount = rsAssessments.getInt(1);
+        }
+        rsAssessments.close();
 
-        // Recent assessments (you can move this into model.Assessments later)
-        ResultSet rsRecentAssessments = stmt.executeQuery("SELECT name, description FROM assessments LIMIT 5");
-        while (rsRecentAssessments.next()) {
-            String[] assessment = new String[2];
-            assessment[0] = rsRecentAssessments.getString("name");
-            assessment[1] = rsRecentAssessments.getString("description");
-            recentAssessments.add(assessment);
+        // Recent Assessments
+        ResultSet rsRecentAssessments = stmt.executeQuery("SELECT name, description FROM assessments   LIMIT 5");
+        int index = 0;
+        while (rsRecentAssessments.next() && index < 5) {
+            recentAssessments[index] = rsRecentAssessments.getString("name");
+            recentAssessmentDates[index] = rsRecentAssessments.getString("description");
+            index++;
         }
         rsRecentAssessments.close();
 
-        // Recent tests using model.Tests
-        recentTests = Tests.getRecentTests(conn);
+        // Query for recent tests
+        ResultSet rsRecentTests = stmt.executeQuery("SELECT title, assessment_id, created_date, target_difficulty FROM tests ORDER BY created_date DESC LIMIT 5");
+        int activityIndex = 0;
+        while (rsRecentTests.next() && activityIndex < 5) {
+            recentTestsTitles[activityIndex] = rsRecentTests.getString("title");
+            recentTestsassessmentid[activityIndex] = rsRecentTests.getString("assessment_id");
+            recentTestsDates[activityIndex] = rsRecentTests.getString("created_date");
+            recentTeststargetDifficulty[activityIndex] = rsRecentTests.getString("target_difficulty");
+            activityIndex++;
+        }
+        rsRecentTests.close();
 
+        // Close the connection
         stmt.close();
         conn.close();
     } catch (Exception e) {
@@ -368,17 +386,18 @@
                             <th>created at</th>
                         </tr>
                     </thead>
-                    <tbody>
-    <% for (Tests test : recentTests) { %>
-        <tr>
-            <td><%= test.getTitle() %></td>
-            <td><%= test.getAssessmentId() %></td>
-            <td><%= test.getCreatedDate() %></td>
-            <td><%= test.getTargetDifficulty() %></td>
-        </tr>
-    <% } %>
-</tbody>
-
+                                 <tbody>
+                        <% for (int i = 0; i < recentTestsTitles.length; i++) { %>
+                            <% if (recentTestsTitles[i] != null) { %>
+                                <tr>
+                                    <td><%= recentTestsTitles[i] %></td>
+                                    <td><%= recentTestsassessmentid[i] %></td>
+                                    <td><%= recentTestsDates[i] %></td>
+                                    <td><%= recentTeststargetDifficulty[i] %></td>
+                                </tr>
+                            <% } %>
+                        <% } %>
+                    </tbody>
                 </table>
             </div>
 

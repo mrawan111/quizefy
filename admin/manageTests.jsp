@@ -1,3 +1,42 @@
+<%@ page import="java.sql.Connection" %>
+<%@ page import="java.sql.PreparedStatement" %>
+<%@ page import="java.sql.ResultSet" %>
+<%@ page import="java.util.List" %>
+<%@ page import="java.util.ArrayList" %>
+<%@ page import="my_pack.Assessment" %>
+<%@ page import="my_pack.Test" %>
+<%@ page import="my_pack.DBConnection" %>
+
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+
+<%
+    Connection conn = null;
+    PreparedStatement stmt = null;
+    ResultSet rs = null;
+
+    // Handle form submission
+    if ("POST".equalsIgnoreCase(request.getMethod())) {
+        String title = request.getParameter("title");
+        String description = request.getParameter("description");
+        String assessmentId = request.getParameter("assessment_id");
+
+        try {
+            conn = DBConnection.getConnection();
+            String insertSQL = "INSERT INTO tests (title, description, assessment_id) VALUES (?, ?, ?)";
+            stmt = conn.prepareStatement(insertSQL);
+            stmt.setString(1, title);
+            stmt.setString(2, description);
+            stmt.setInt(3, Integer.parseInt(assessmentId));
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            out.println("<p style='color:red;'>Error: " + e.getMessage() + "</p>");
+        } finally {
+            if (stmt != null) stmt.close();
+            if (conn != null) conn.close();
+        }
+    }
+%>
+
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -232,13 +271,13 @@
     <div class="container">
         <div class="sidebar">
             <h2>Quizefy System</h2>
-            <ul class="sidebar-menu">
-                <li><a href="index.html" class="active">Dashboard</a></li>
-                <li><a href="assessments.html">Manage Assessments</a></li>
-                <li><a href="manageTests.html">Manage Tests</a></li>
-                <li><a href="users.html">Manage Users</a></li>
-                <li><a href="reports.html">Performance Reports</a></li>
-                <li><a href="questions.html">Question Bank</a></li>
+              <ul class="sidebar-menu">
+                <li><a href="index.jsp" class="active">Dashboard</a></li>
+                <li><a href="assessments.jsp">Manage Assessments</a></li>
+                <li><a href="manageTests.jsp">Manage Tests</a></li>
+                <li><a href="users.jsp">Manage Users</a></li>
+                <li><a href="reports.jsp">Performance Reports</a></li>
+                <li><a href="questions.jsp">Question Bank</a></li>
             </ul>
         </div>
 
@@ -267,14 +306,30 @@
     <select name="assessment_id" id="assessmentId" class="form-control" required>
         <option value="">-- Select Assessment --</option>
         <%
-            // جلب التقييمات من DAO (يفترض أن لديك AssessmentDAO فيه method getAllAssessments)
-            List<model.Assessment> assessments = dao.AssessmentDAO.getAllAssessments();
-            for (model.Assessment assessment : assessments) {
-        %>
-            <option value="<%= assessment.getId() %>"><%= assessment.getName() %></option>
-        <%
-            }
-        %>
+    List<Assessment> assessments = new ArrayList<>();
+    try {
+        conn = DBConnection.getConnection();
+        stmt = conn.prepareStatement("SELECT * FROM assessments");
+        rs = stmt.executeQuery();
+        while (rs.next()) {
+            assessments.add(new Assessment(rs.getInt("id"), rs.getString("name")));
+        }
+    } catch (Exception e) {
+        out.println("<p style='color:red;'>Failed to load assessments: " + e.getMessage() + "</p>");
+    } finally {
+        if (rs != null) rs.close();
+        if (stmt != null) stmt.close();
+        if (conn != null) conn.close();
+    }
+
+    for (Assessment a : assessments) {
+%>
+    <option value="<%= a.getId() %>"><%= a.getTitle() %></option>
+<%
+    }
+%>
+
+  
     </select>
                     </div>
                     <button class="btn btn-primary" type="submit">Create Test</button>
@@ -285,6 +340,41 @@
             <div class="divider"></div>
             <div class="card">
                 <h3>All Tests</h3>
+                <%
+    List<Test> tests = new ArrayList<>();
+    try {
+        conn = DBConnection.getConnection();
+        stmt = conn.prepareStatement("SELECT * FROM tests");
+        rs = stmt.executeQuery();
+        while (rs.next()) {
+            tests.add(new Test(
+                rs.getInt("id"),
+                rs.getString("title"),
+                rs.getString("description")
+            ));
+        }
+    } catch (Exception e) {
+        out.println("<p style='color:red;'>Error loading tests: " + e.getMessage() + "</p>");
+    } finally {
+        if (rs != null) rs.close();
+        if (stmt != null) stmt.close();
+        if (conn != null) conn.close();
+    }
+
+    for (Test t : tests) {
+%>
+<tr>
+    <td><%= t.getTitle() %></td>
+    <td><%= t.getDescription() %></td>
+    <td>
+        <a href="editTest.jsp?id=<%= t.getId() %>" class="btn btn-primary">Edit</a>
+        <a href="deleteTest.jsp?id=<%= t.getId() %>" class="btn btn-danger">Delete</a>
+    </td>
+</tr>
+<%
+    }
+%>
+
                 <table>
                     <thead>
                         <tr>
@@ -294,7 +384,6 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <%-- Example: Replace with loop over test list from DAO --%>
                         <tr>
                             <td>Java Basics</td>
                             <td>Introductory Java test</td>
