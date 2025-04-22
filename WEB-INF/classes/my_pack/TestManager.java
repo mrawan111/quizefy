@@ -20,7 +20,7 @@ public class TestManager {
                 Map<String, String> test = new HashMap<>();
                 test.put("id", rs.getString("id"));
                 test.put("title", rs.getString("title"));
-                test.put("description", rs.getString("description"));
+                test.put("target_difficulty", rs.getString("target_difficulty"));
                 list.add(test);
             }
         } catch (Exception e) {

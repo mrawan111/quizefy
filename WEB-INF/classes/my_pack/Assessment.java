@@ -1,28 +1,14 @@
 package my_pack;
+
 public class Assessment {
     private int id;
-    private String title;
+    private String name;
 
-    public Assessment(int id, String title) {
+    public Assessment(int id, String name) {
         this.id = id;
-        this.title = title;
+        this.name = name;
     }
 
-    public Assessment() {}
-
-    public int getId() {
-        return id;
-    }
-
-    public void setId(int id) {
-        this.id = id;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
+    public int getId() { return id; }
+    public String getName() { return name; }
 }
