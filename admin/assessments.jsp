@@ -1,3 +1,78 @@
+<%@ page import="my_pack.AssessmentManager" %>
+<%@ page import="java.util.*" %>
+
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%
+    AssessmentManager manager = new AssessmentManager();
+    String error = null;
+    String success = null;
+
+    // Handle form submissions
+    if ("POST".equalsIgnoreCase(request.getMethod())) {
+        String action = request.getParameter("action");
+        
+        if ("add".equals(action)) {
+            String name = request.getParameter("name");
+            String description = request.getParameter("description");
+            
+            if (manager.addAssessment(name, description)) {
+                success = "Assessment added successfully!";
+            } else {
+                error = "Failed to add assessment";
+            }
+        } 
+        else if ("update".equals(action)) {
+            String idStr = request.getParameter("id");
+            String name = request.getParameter("name");
+            String description = request.getParameter("description");
+            
+            try {
+                int id = Integer.parseInt(idStr);
+                if (manager.updateAssessment(id, name, description)) {
+                    success = "Assessment updated successfully!";
+                } else {
+                    error = "Failed to update assessment";
+                }
+            } catch (NumberFormatException e) {
+                error = "Invalid assessment ID";
+            }
+        }
+        else if ("delete".equals(action)) {
+            String idStr = request.getParameter("id");
+            
+            try {
+                int id = Integer.parseInt(idStr);
+                if (manager.deleteAssessment(id)) {
+                    success = "Assessment deleted successfully!";
+                } else {
+                    error = "Failed to delete assessment";
+                }
+            } catch (NumberFormatException e) {
+                error = "Invalid assessment ID";
+            }
+        }
+        
+        if (error == null && success != null) {
+            response.sendRedirect("assessments.jsp");
+            return;
+        }
+    }
+
+    // Get assessments for display
+    List<Map<String, String>> assessments = manager.getAllAssessments();
+    
+    // Check if editing
+    String editId = request.getParameter("edit");
+    Map<String, String> editAssessment = null;
+    if (editId != null) {
+        try {
+            int id = Integer.parseInt(editId);
+            editAssessment = manager.getAssessmentById(id);
+        } catch (NumberFormatException e) {
+            error = "Invalid assessment ID";
+        }
+    }
+%>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,6 +88,7 @@
             --success-color: #2ecc71;
             --warning-color: #f39c12;
             --danger-color: #e74c3c;
+            --draft-color: #95a5a6;
         }
         
         * {
@@ -197,47 +273,41 @@
         
         .assessment-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
+            grid-template-columns: 1fr;
+            gap: 15px;
             margin-top: 20px;
         }
         
-        .assessment-card {
+        .assessment-item {
             background-color: var(--white);
             border-radius: 8px;
             padding: 20px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             border-left: 4px solid var(--primary-color);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         
-        .assessment-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-        }
-        
-        .assessment-card h4 {
-            margin-bottom: 10px;
+        .assessment-item h4 {
+            margin-bottom: 5px;
             color: var(--primary-color);
             font-size: 18px;
         }
         
-        .assessment-card p {
+        .assessment-item .meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .assessment-item p {
             color: var(--dark-gray);
             font-size: 14px;
             margin-bottom: 15px;
             line-height: 1.5;
         }
         
-        .assessment-card .meta {
-            display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            color: #666;
-            margin-bottom: 15px;
-        }
-        
-        .assessment-card .actions {
+        .assessment-item .actions {
             display: flex;
             gap: 10px;
             justify-content: flex-end;
@@ -248,9 +318,28 @@
             font-weight: 500;
         }
         
-        .status-inactive {
-            color: var(--danger-color);
+        .status-draft {
+            color: var(--draft-color);
             font-weight: 500;
+        }
+        
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
         }
         
         .footer {
@@ -286,20 +375,16 @@
                 align-items: flex-start;
                 gap: 15px;
             }
-            
-            .assessment-list {
-                grid-template-columns: 1fr;
-            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-       <div class="sidebar">
+        <div class="sidebar">
             <h2>Quizefy System</h2>
-              <ul class="sidebar-menu">
-                <li><a href="index.jsp" class="active">Dashboard</a></li>
-                <li><a href="assessments.jsp">Manage Assessments</a></li>
+            <ul class="sidebar-menu">
+                <li><a href="index.jsp">Dashboard</a></li>
+                <li><a href="assessments.jsp" class="active">Manage Assessments</a></li>
                 <li><a href="manageTests.jsp">Manage Tests</a></li>
                 <li><a href="users.jsp">Manage Users</a></li>
                 <li><a href="reports.jsp">Performance Reports</a></li>
@@ -316,109 +401,86 @@
                 </div>
             </header>
 
+            <% if (error != null) { %>
+                <div class="alert alert-danger"><%= error %></div>
+            <% } %>
+            
+            <% if (success != null) { %>
+                <div class="alert alert-success"><%= success %></div>
+            <% } %>
+
             <div class="card">
                 <div class="assessment-actions">
                     <h3>All Assessments</h3>
-                    
-                    <button class="btn btn-primary" id="addAssessmentBtn">+ Create Assessment</button>
+                    <a href="assessments.jsp?edit=new" class="btn btn-primary">+ Create Assessment</a>
                 </div>
 
-                <!-- Assessment Creation Form (initially hidden) -->
-                <div class="card" id="assessmentForm" style="display: none; margin-bottom: 20px;">
-                    <h3>Create New Assessment</h3>
-                    <div class="form-group">
-                        <label for="assessmentName">Assessment Name</label>
-                        <input type="text" id="assessmentName" class="form-control" placeholder="e.g., JavaScript Fundamentals Test">
+                <% if (editAssessment != null || "new".equals(editId)) { %>
+                    <div class="card" style="margin-bottom: 20px;">
+                        <h3><%= editAssessment != null ? "Edit Assessment" : "Create New Assessment" %></h3>
+                        <form method="post">
+                            <input type="hidden" name="action" value="<%= editAssessment != null ? "update" : "add" %>">
+                            <% if (editAssessment != null) { %>
+                                <input type="hidden" name="id" value="<%= editAssessment.get("id") %>">
+                            <% } %>
+                            
+                            <div class="form-group">
+                                <label>Assessment Name</label>
+                                <input type="text" name="name" class="form-control" 
+                                       placeholder="e.g., JavaScript Fundamentals Test"
+                                       value="<%= editAssessment != null ? editAssessment.get("name") : "" %>" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Description</label>
+                                <textarea name="description" class="form-control" required><%= 
+                                    editAssessment != null ? editAssessment.get("description") : "" %></textarea>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px;">
+                                <button type="submit" class="btn btn-primary">
+                                    <%= editAssessment != null ? "Update" : "Save" %> Assessment
+                                </button>
+                                <a href="assessments.jsp" class="btn">Cancel</a>
+                            </div>
+                        </form>
                     </div>
-                    <div class="form-group">
-                        <label for="assessmentModule">Module</label>
-                        <select id="assessmentModule" class="form-control">
-                            <option value="js">JavaScript Basics</option>
-                            <option value="python">Python Intermediate</option>
-                            <option value="react">React Essentials</option>
-                            <option value="db">Database Design</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="assessmentDesc">Description</label>
-                        <textarea id="assessmentDesc" class="form-control" rows="3" placeholder="Assessment description"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="assessmentDuration">Duration (minutes)</label>
-                        <input type="number" id="assessmentDuration" class="form-control" value="30" min="5">
-                    </div>
-                    <button class="btn btn-primary">Save Assessment</button>
-                    <button class="btn" onclick="document.getElementById('assessmentForm').style.display='none'">Cancel</button>
-                </div>
+                <% } %>
 
-                <!-- Assessment List -->
                 <div class="assessment-list">
-                    <div class="assessment-card">
-                        <h4>JavaScript Basics</h4>
-                        <div class="meta">
-                            <span>Module: JavaScript</span>
-                            <span class="status-active">Active</span>
+                    <% if (assessments.isEmpty()) { %>
+                        <div class="card">
+                            <p>No assessments found. Create your first assessment!</p>
                         </div>
-                        <p>Test knowledge of JavaScript fundamentals including variables, functions, and basic DOM manipulation.</p>
-                        <div class="actions">
-                            <button class="btn btn-sm btn-primary">Edit</button>
-                            <button class="btn btn-sm btn-warning">Duplicate</button>
-                            <button class="btn btn-sm btn-danger">Archive</button>
-                        </div>
-                    </div>
-                    <div class="assessment-card">
-                        <h4>Python Intermediate</h4>
-                        <div class="meta">
-                            <span>Module: Python</span>
-                            <span class="status-active">Active</span>
-                        </div>
-                        <p>Assess intermediate Python skills including list comprehensions, decorators, and file handling.</p>
-                        <div class="actions">
-                            <button class="btn btn-sm btn-primary">Edit</button>
-                            <button class="btn btn-sm btn-warning">Duplicate</button>
-                            <button class="btn btn-sm btn-danger">Archive</button>
-                        </div>
-                    </div>
-                    <div class="assessment-card">
-                        <h4>Database Design</h4>
-                        <div class="meta">
-                            <span>Module: Database</span>
-                            <span class="status-active">Active</span>
-                        </div>
-                        <p>Evaluate understanding of relational database concepts, normalization, and SQL queries.</p>
-                        <div class="actions">
-                            <button class="btn btn-sm btn-primary">Edit</button>
-                            <button class="btn btn-sm btn-warning">Duplicate</button>
-                            <button class="btn btn-sm btn-danger">Archive</button>
-                        </div>
-                    </div>
-                    <div class="assessment-card">
-                        <h4>React Essentials</h4>
-                        <div class="meta">
-                            <span>Module: React</span>
-                            <span class="status-inactive">Draft</span>
-                        </div>
-                        <p>Test React knowledge including components, state management, and hooks.</p>
-                        <div class="actions">
-                            <button class="btn btn-sm btn-primary">Edit</button>
-                            <button class="btn btn-sm btn-warning">Duplicate</button>
-                            <button class="btn btn-sm btn-danger">Archive</button>
-                        </div>
-                    </div>
+                    <% } else { %>
+                        <% for (Map<String, String> a : assessments) { %>
+                            <div class="assessment-item">
+                                <h4><%= a.get("name") %></h4>
+                                <div class="meta">
+                                    <span>ID: <%= a.get("id") %></span>
+                                    <span class="status-active">Active</span>
+                                </div>
+                                <p><%= a.get("description") %></p>
+                                <div class="actions">
+                                    <a href="assessments.jsp?edit=<%= a.get("id") %>" class="btn btn-sm btn-primary">Edit</a>
+                                    <form method="post" style="display: inline;">
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="id" value="<%= a.get("id") %>">
+                                        <button type="submit" class="btn btn-sm btn-danger" 
+                                            onclick="return confirm('Are you sure you want to delete this assessment?')">Delete</button>
+                                    </form>
+                                </div>
+                            </div>
+                        <% } %>
+                    <% } %>
                 </div>
             </div>
 
             <div class="footer">
                 <p>Support | Documentation</p>
-                <p>© 2025 Assessment System</p>
+                <p>© 2025 Quizefy System</p>
             </div>
         </div>
     </div>
-
-    <script>
-        document.getElementById('addAssessmentBtn').addEventListener('click', function() {
-            document.getElementById('assessmentForm').style.display = 'block';
-        });
-    </script>
 </body>
 </html>

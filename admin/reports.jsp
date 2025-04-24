@@ -1,3 +1,152 @@
+<%@ page import="java.sql.*" %>
+<%@ page import="java.util.*" %>
+<%@ page import="java.time.*" %>
+<%@ page import="java.time.format.*" %>
+<%@ page import="java.time.format.*" %>
+<%@ page import="my_pack.Report" %>
+
+
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+
+<%
+    // Database connection and data retrieval
+    Connection conn = null;
+    PreparedStatement stmt = null;
+    ResultSet rs = null;
+    
+    // Initialize variables for filters
+    String moduleFilter = request.getParameter("module") != null ? request.getParameter("module") : "all";
+    String userFilter = request.getParameter("user") != null ? request.getParameter("user") : "all";
+    String dateFilter = request.getParameter("date") != null ? request.getParameter("date") : "all";
+    
+    // Data structures for results
+    List<Map<String, String>> testResults = new ArrayList<>();
+    List<Map<String, String>> modules = new ArrayList<>();
+    List<Map<String, String>> users = new ArrayList<>();
+    
+    // Performance metrics
+    double averageScore = 0;
+    double highestScore = 0;
+    String highestScoreUser = "";
+    String highestScoreModule = "";
+    double completionRate = 0;
+    int totalTests = 0;
+    int completedTests = 0;
+    
+    try {
+        // Get database connection
+       Class.forName("org.postgresql.Driver");
+         conn = DriverManager.getConnection(
+            "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway", "postgres", "TzRGIYmjwyLwlaZPPGoziHjOakANiumm"
+        );
+        // Get all assessments (modules)
+        stmt = conn.prepareStatement("SELECT id, name FROM assessments");
+        rs = stmt.executeQuery();
+        while (rs.next()) {
+            Map<String, String> module = new HashMap<>();
+            module.put("id", rs.getString("id"));
+            module.put("name", rs.getString("name"));
+            modules.add(module);
+        }
+        rs.close();
+        stmt.close();
+        
+        // Get all users
+        stmt = conn.prepareStatement("SELECT id, name FROM users WHERE role = 'candidate'");
+        rs = stmt.executeQuery();
+        while (rs.next()) {
+            Map<String, String> user = new HashMap<>();
+            user.put("id", rs.getString("id"));
+            user.put("name", rs.getString("name"));
+            users.add(user);
+        }
+        rs.close();
+        stmt.close();
+        
+        // Build SQL query based on filters
+        StringBuilder sql = new StringBuilder(
+            "SELECT tr.score, tr.status, tr.test_id, u.name AS user_name, " +
+            "a.name AS assessment_name, t.created_date " +
+            "FROM test_results tr " +
+            "JOIN users u ON tr.user_id = u.id " +
+            "JOIN assessments a ON tr.assessment_id = a.id " +
+            "JOIN tests t ON tr.test_id = t.id " +
+            "WHERE 1=1");
+        
+        List<String> params = new ArrayList<>();
+        
+        if (!moduleFilter.equals("all")) {
+            sql.append(" AND a.id = ?");
+            params.add(moduleFilter);
+        }
+        
+        if (!userFilter.equals("all")) {
+            sql.append(" AND u.id = ?");
+            params.add(userFilter);
+        }
+        
+        if (!dateFilter.equals("all")) {
+            LocalDate now = LocalDate.now();
+            if (dateFilter.equals("month")) {
+                sql.append(" AND t.created_date >= ?");
+                params.add(now.minusMonths(1).toString());
+            } else if (dateFilter.equals("week")) {
+                sql.append(" AND t.created_date >= ?");
+                params.add(now.minusWeeks(1).toString());
+            } else if (dateFilter.equals("custom")) {
+                // You would need to add custom date range handling
+            }
+        }
+        
+        sql.append(" ORDER BY t.created_date DESC");
+        
+        stmt = conn.prepareStatement(sql.toString());
+        for (int i = 0; i < params.size(); i++) {
+            stmt.setString(i + 1, params.get(i));
+        }
+        
+        rs = stmt.executeQuery();
+        while (rs.next()) {
+            Map<String, String> result = new HashMap<>();
+            result.put("user", rs.getString("user_name"));
+            result.put("assessment", rs.getString("assessment_name"));
+            result.put("date", rs.getDate("created_date").toString());
+            result.put("score", String.format("%.0f%%", rs.getDouble("score") * 100));
+            result.put("status", rs.getString("status"));
+            result.put("test_id", rs.getString("test_id"));
+            testResults.add(result);
+            
+            // Calculate metrics
+            double score = rs.getDouble("score") * 100;
+            averageScore += score;
+            totalTests++;
+            
+            if (score > highestScore) {
+                highestScore = score;
+                highestScoreUser = rs.getString("user_name");
+                highestScoreModule = rs.getString("assessment_name");
+            }
+            
+            if (rs.getString("status").equals("Pass") || rs.getString("status").equals("Fail")) {
+                completedTests++;
+            }
+        }
+        
+        // Calculate final metrics
+        if (totalTests > 0) {
+            averageScore = averageScore / totalTests;
+            completionRate = ((double) completedTests / totalTests) * 100;
+        }
+        
+    } catch (Exception e) {
+        e.printStackTrace();
+    } finally {
+        if (rs != null) rs.close();
+        if (stmt != null) stmt.close();
+        if (conn != null) conn.close();
+    }
+%>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -320,11 +469,11 @@
         <div class="sidebar">
             <h2>Quizefy System</h2>
              <ul class="sidebar-menu">
-                <li><a href="index.jsp" class="active">Dashboard</a></li>
+                <li><a href="index.jsp">Dashboard</a></li>
                 <li><a href="assessments.jsp">Manage Assessments</a></li>
                 <li><a href="manageTests.jsp">Manage Tests</a></li>
                 <li><a href="users.jsp">Manage Users</a></li>
-                <li><a href="reports.jsp">Performance Reports</a></li>
+                <li><a href="reports.jsp" class="active">Performance Reports</a></li>
                 <li><a href="questions.jsp">Question Bank</a></li>
             </ul>
         </div>
@@ -339,107 +488,115 @@
             </header>
 
             <div class="card">
-                <div class="report-filters">
-                    <div class="filter-group">
-                        <label for="reportModule">Module</label>
-                        <select id="reportModule" class="form-control">
-                            <option value="all">All Modules</option>
-                            <option value="js">JavaScript Basics</option>
-                            <option value="python">Python Intermediate</option>
-                            <option value="react">React Essentials</option>
-                        </select>
+                <form method="get">
+                    <div class="report-filters">
+                        <div class="filter-group">
+                            <label for="reportModule">Module</label>
+                            <select id="reportModule" name="module" class="form-control">
+                                <option value="all">All Modules</option>
+                                <% for (Map<String, String> module : modules) { %>
+                                    <option value="<%= module.get("id") %>" <%= module.get("id").equals(moduleFilter) ? "selected" : "" %>>
+                                        <%= module.get("name") %>
+                                    </option>
+                                <% } %>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="reportUser">User</label>
+                            <select id="reportUser" name="user" class="form-control">
+                                <option value="all">All Users</option>
+                                <% for (Map<String, String> user : users) { %>
+                                    <option value="<%= user.get("id") %>" <%= user.get("id").equals(userFilter) ? "selected" : "" %>>
+                                        <%= user.get("name") %>
+                                    </option>
+                                <% } %>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="reportDate">Date Range</label>
+                            <select id="reportDate" name="date" class="form-control">
+                                <option value="all" <%= dateFilter.equals("all") ? "selected" : "" %>>All Time</option>
+                                <option value="month" <%= dateFilter.equals("month") ? "selected" : "" %>>Last Month</option>
+                                <option value="week" <%= dateFilter.equals("week") ? "selected" : "" %>>Last Week</option>
+                                <option value="custom" <%= dateFilter.equals("custom") ? "selected" : "" %>>Custom Range</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="filter-group">
-                        <label for="reportUser">User</label>
-                        <select id="reportUser" class="form-control">
-                            <option value="all">All Users</option>
-                            <option value="user1">John Doe</option>
-                            <option value="user2">Recruiter Smith</option>
-                            <option value="user3">Candidate Taylor</option>
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label for="reportDate">Date Range</label>
-                        <select id="reportDate" class="form-control">
-                            <option value="all">All Time</option>
-                            <option value="month">Last Month</option>
-                            <option value="week">Last Week</option>
-                            <option value="custom">Custom Range</option>
-                        </select>
-                    </div>
-                </div>
 
-                <button class="btn btn-primary">Generate Report</button>
-                <button class="btn">Export to CSV</button>
+                    <button type="submit" class="btn btn-primary">Generate Report</button>
+                    <button type="button" class="btn" onclick="exportToCSV()">Export to CSV</button>
 
-                <div class="divider"></div>
+                    <div class="divider"></div>
 
-                <h3>Performance Overview</h3>
-                <div class="chart-container">
-                    <div class="chart-placeholder">
-                        Performance Chart Visualization Would Appear Here
+                    <h3>Performance Overview</h3>
+                    <div class="chart-container">
+                        <div class="chart-placeholder">
+                            Performance Chart Visualization Would Appear Here
+                            <!-- In a real application, you would integrate a charting library here -->
+                        </div>
                     </div>
-                </div>
 
-                <div class="score-distribution">
-                    <div class="score-card">
-                        <h4>Average Score</h4>
-                        <div class="score-value">78% <span class="improvement-tag improvement-up">+5%</span></div>
-                        <p>Across all assessments and users</p>
+                    <div class="score-distribution">
+                        <div class="score-card">
+                            <h4>Average Score</h4>
+                            <div class="score-value"><%= String.format("%.0f%%", averageScore) %> 
+                                <span class="improvement-tag improvement-up">+5%</span>
+                            </div>
+                            <p>Across all assessments and users</p>
+                        </div>
+                        <div class="score-card">
+                            <h4>Highest Score</h4>
+                            <div class="score-value"><%= String.format("%.0f%%", highestScore) %></div>
+                            <p>Achieved by <%= highestScoreUser %> in <%= highestScoreModule %></p>
+                        </div>
+                        <div class="score-card">
+                            <h4>Completion Rate</h4>
+                            <div class="score-value"><%= String.format("%.0f%%", completionRate) %> 
+                                <span class="improvement-tag improvement-down">-2%</span>
+                            </div>
+                            <p>Percentage of started assessments that were completed</p>
+                        </div>
                     </div>
-                    <div class="score-card">
-                        <h4>Highest Score</h4>
-                        <div class="score-value">96%</div>
-                        <p>Achieved by John Doe in JavaScript Basics</p>
-                    </div>
-                    <div class="score-card">
-                        <h4>Completion Rate</h4>
-                        <div class="score-value">89% <span class="improvement-tag improvement-down">-2%</span></div>
-                        <p>Percentage of started assessments that were completed</p>
-                    </div>
-                </div>
 
-                <div class="divider"></div>
+                    <div class="divider"></div>
 
-                <h3>Detailed Results</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>User</th>
-                            <th>Assessment</th>
-                            <th>Date Taken</th>
-                            <th>Score</th>
-                            <th>Status</th>
-                            <th>Details</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>John Doe</td>
-                            <td>JavaScript Basics</td>
-                            <td>04/15/2025</td>
-                            <td>96%</td>
-                            <td><span class="status-active">Passed</span></td>
-                            <td><button class="btn btn-sm btn-primary">View</button></td>
-                        </tr>
-                        <tr>
-                            <td>Candidate Taylor</td>
-                            <td>Python Intermediate</td>
-                            <td>04/12/2025</td>
-                            <td>72%</td>
-                            <td><span class="status-active">Passed</span></td>
-                            <td><button class="btn btn-sm btn-primary">View</button></td>
-                        </tr>
-                        <tr>
-                            <td>Candidate Taylor</td>
-                            <td>Database Design</td>
-                            <td>04/05/2025</td>
-                            <td>58%</td>
-                            <td><span class="status-inactive">Failed</span></td>
-                            <td><button class="btn btn-sm btn-primary">View</button></td>
-                        </tr>
-                    </tbody>
-                </table>
+                    <h3>Detailed Results</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Assessment</th>
+                                <th>Date Taken</th>
+                                <th>Score</th>
+                                <th>Status</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% for (Map<String, String> result : testResults) { %>
+                                <tr>
+                                    <td><%= result.get("user") %></td>
+                                    <td><%= result.get("assessment") %></td>
+                                    <td><%= result.get("date") %></td>
+                                    <td><%= result.get("score") %></td>
+                                    <td>
+                                        <span class="status-<%= result.get("status").equalsIgnoreCase("Pass") ? "active" : "inactive" %>">
+                                            <%= result.get("status") %>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href="testDetails.jsp?id=<%= result.get("test_id") %>" class="btn btn-sm btn-primary">View</a>
+                                    </td>
+                                </tr>
+                            <% } %>
+                            <% if (testResults.isEmpty()) { %>
+                                <tr>
+                                    <td colspan="6" style="text-align: center;">No results found for the selected filters</td>
+                                </tr>
+                            <% } %>
+                        </tbody>
+                    </table>
+                </form>
             </div>
 
             <div class="footer">
@@ -449,5 +606,14 @@
         </div>
     </div>
     
+    <script>
+        function exportToCSV() {
+            // In a real application, this would generate and download a CSV file
+            alert("CSV export functionality would be implemented here");
+            
+            // Example of how this might work:
+            // window.location.href = 'exportReports.jsp?module=<%= moduleFilter %>&user=<%= userFilter %>&date=<%= dateFilter %>';
+        }
+    </script>
 </body>
 </html>
