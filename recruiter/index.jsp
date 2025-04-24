@@ -1,6 +1,81 @@
+<%@ page import="java.sql.*" %>
+<%
+    int userCount = 0;
+    int recruiterCount = 0;
+    int assessmentCount = 0;
+    String[] recentAssessments = new String[5];  // Store names of recent assessments
+    String[] recentAssessmentDates = new String[5];  // Store dates of recent assessments
+
+    String[] recentTestsTitles = new String[5];  // Store activities descriptions
+    String[] recentTestsassessmentid = new String[5]; 
+    String[] recentTeststargetDifficulty = new String[5]; 
+    String[] recentTestsDates = new String[5];  // Store activity dates
+
+    try {
+        // Establish the database connection
+        Class.forName("org.postgresql.Driver");
+        Connection conn = DriverManager.getConnection(
+            "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway", "postgres", "TzRGIYmjwyLwlaZPPGoziHjOakANiumm"
+        );
+
+        Statement stmt = conn.createStatement();
+
+        // Total users
+        ResultSet rsUsers = stmt.executeQuery("SELECT COUNT(*) FROM users");
+        if (rsUsers.next()) {
+            userCount = rsUsers.getInt(1);
+        }
+        rsUsers.close();
+
+        // Recruiters
+        ResultSet rsRecruiters = stmt.executeQuery("SELECT COUNT(*) FROM users WHERE role = 'recruiter'");
+        if (rsRecruiters.next()) {
+            recruiterCount = rsRecruiters.getInt(1);
+        }
+        rsRecruiters.close();
+
+        // Assessments
+        ResultSet rsAssessments = stmt.executeQuery("SELECT COUNT(*) FROM assessments");
+        if (rsAssessments.next()) {
+            assessmentCount = rsAssessments.getInt(1);
+        }
+        rsAssessments.close();
+
+        // Recent Assessments
+        ResultSet rsRecentAssessments = stmt.executeQuery("SELECT name, description FROM assessments   LIMIT 5");
+        int index = 0;
+        while (rsRecentAssessments.next() && index < 5) {
+            recentAssessments[index] = rsRecentAssessments.getString("name");
+            recentAssessmentDates[index] = rsRecentAssessments.getString("description");
+            index++;
+        }
+        rsRecentAssessments.close();
+
+        // Query for recent tests
+        ResultSet rsRecentTests = stmt.executeQuery("SELECT title, assessment_id, created_date, target_difficulty FROM tests ORDER BY created_date DESC LIMIT 5");
+        int activityIndex = 0;
+        while (rsRecentTests.next() && activityIndex < 5) {
+            recentTestsTitles[activityIndex] = rsRecentTests.getString("title");
+            recentTestsassessmentid[activityIndex] = rsRecentTests.getString("assessment_id");
+            recentTestsDates[activityIndex] = rsRecentTests.getString("created_date");
+            recentTeststargetDifficulty[activityIndex] = rsRecentTests.getString("target_difficulty");
+            activityIndex++;
+        }
+        rsRecentTests.close();
+
+        // Close the connection
+        stmt.close();
+        conn.close();
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+%>
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assessment System - Dashboard</title>
@@ -231,14 +306,17 @@
     </style>
 </head>
 <body>
+    
     <div class="container">
         <div class="sidebar">
             <h2>Quizefy System</h2>
             <ul class="sidebar-menu">
-                <li><a href="index.html" class="active">Dashboard</a></li>
-                <li><a href="assessments.html">Manage Assessments</a></li>
-                <li><a href="users.html">Manage Users</a></li>
-               
+                <li><a href="index.jsp" class="active">Dashboard</a></li>
+                <li><a href="assessments.jsp">Manage Assessments</a></li>
+                <li><a href="manageTests.jsp">Manage Tests</a></li>
+                <li><a href="users.jsp">Manage Users</a></li>
+                <li><a href="reports.jsp">Performance Reports</a></li>
+                <li><a href="questions.jsp">Question Bank</a></li>
             </ul>
         </div>
 
@@ -255,15 +333,16 @@
             <!-- System Overview Cards -->
             <div class="system-overview">
                 <div class="stat-card">
-                    <div class="number">125</div>
+                    <div class="number"><%= userCount %></div>
                     <div class="label">Total Users</div>
+
                 </div>
                 <div class="stat-card">
-                    <div class="number">58</div>
+                    <div class="number"><%= assessmentCount %></div>
                     <div class="label">Assessments Created</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">8</div>
+                    <div class="number"><%= recruiterCount %></div>
                     <div class="label">Recruiters Registered</div>
                 </div>
             </div>
@@ -276,22 +355,18 @@
                     <thead>
                         <tr>
                             <th>Assessment Name</th>
-                            <th>Date Created</th>
+                            <th>Description</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>JavaScript Basics</td>
-                            <td>10/27/2023</td>
-                        </tr>
-                        <tr>
-                            <td>Python Intermediate</td>
-                            <td>10/25/2023</td>
-                        </tr>
-                        <tr>
-                            <td>React Essentials</td>
-                            <td>10/20/2023</td>
-                        </tr>
+                      <tbody>
+                        <% for (int i = 0; i < recentAssessments.length; i++) { %>
+                            <% if (recentAssessments[i] != null) { %>
+                                <tr>
+                                    <td><%= recentAssessments[i] %></td>
+                                    <td><%= recentAssessmentDates[i] %></td>
+                                </tr>
+                            <% } %>
+                        <% } %>
                     </tbody>
                 </table>
             </div>
@@ -300,31 +375,28 @@
 
             <!-- Recent Activities Table -->
             <div class="card">
-                <h3>Recent Activities</h3>
+                <h3>Recent Tests</h3>
                 <table>
                     <thead>
                         <tr>
-                            <th>Action</th>
-                            <th>User</th>
-                            <th>Date</th>
+                            <th>title</th>
+                            <th>assessment_id</th>
+
+                            <th>created at</th>
+                            <th>target_difficulty</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>Created Assessment</td>
-                            <td>Recruiter_01</td>
-                            <td>04/10/2025</td>
-                        </tr>
-                        <tr>
-                            <td>Added New User</td>
-                            <td>Admin_03</td>
-                            <td>04/03/2025</td>
-                        </tr>
-                        <tr>
-                            <td>Removed Candidate</td>
-                            <td>Admin_02</td>
-                            <td>04/02/2025</td>
-                        </tr>
+                                 <tbody>
+                        <% for (int i = 0; i < recentTestsTitles.length; i++) { %>
+                            <% if (recentTestsTitles[i] != null) { %>
+                                <tr>
+                                    <td><%= recentTestsTitles[i] %></td>
+                                    <td><%= recentTestsassessmentid[i] %></td>
+                                    <td><%= recentTestsDates[i] %></td>
+                                    <td><%= recentTeststargetDifficulty[i] %></td>
+                                </tr>
+                            <% } %>
+                        <% } %>
                     </tbody>
                 </table>
             </div>

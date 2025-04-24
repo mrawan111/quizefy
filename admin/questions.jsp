@@ -2,8 +2,9 @@
 <%@ page import="java.util.List" %>
 <%@ page import="java.util.ArrayList" %>
 <%@ page import="my_pack.Question" %>
-<%@ page import="my_pack.Assessment" %>
+<%@ page import="my_pack.Test" %>
 <%@ page import="my_pack.DBConnection" %>
+<%@ page import="java.util.Arrays" %>
 
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%
@@ -11,13 +12,32 @@
     PreparedStatement stmt = null;
     ResultSet rs = null;
     List<Question> questions = new ArrayList<>();
-    List<Assessment> assessments = new ArrayList<>();
+    List<Test> tests = new ArrayList<>();
     String error = null;
     String successMessage = null;
     String activeTab = request.getParameter("tab") != null ? request.getParameter("tab") : "all";
     String searchQuery = request.getParameter("search");
     String difficultyFilter = request.getParameter("difficulty");
-    String moduleFilter = request.getParameter("module");
+    String testId = request.getParameter("test_id");
+
+    // Load all tests for the test selector
+    try {
+        conn = DBConnection.getConnection();
+        stmt = conn.prepareStatement("SELECT id, title FROM tests");
+        rs = stmt.executeQuery();
+        while (rs.next()) {
+            Test test = new Test();
+            test.setId(rs.getInt("id"));
+            test.setTitle(rs.getString("title"));
+            tests.add(test);
+        }
+    } catch (Exception e) {
+        error = "Error loading tests: " + e.getMessage();
+    } finally {
+        if (rs != null) rs.close();
+        if (stmt != null) stmt.close();
+        if (conn != null) conn.close();
+    }
 
     // Handle form submission
     if ("POST".equalsIgnoreCase(request.getMethod())) {
@@ -26,17 +46,32 @@
         String difficulty = request.getParameter("difficulty");
         String correctAnswer = request.getParameter("correct_answer");
         String weight = request.getParameter("weight");
-        String assessmentId = request.getParameter("assessment_id");
         String questionId = request.getParameter("question_id");
+        String testIdParam = request.getParameter("test_id");
+        
+        // For MCQ questions, format the options
+        if ("MCQ".equals(questionType)) {
+            String[] options = request.getParameterValues("options");
+            String[] optionTexts = request.getParameterValues("option_text");
+            StringBuilder optionsBuilder = new StringBuilder();
+            
+            for (int i = 0; i < options.length; i++) {
+                optionsBuilder.append(options[i]).append(") ").append(optionTexts[i]);
+                if (i < options.length - 1) {
+                    optionsBuilder.append("|");
+                }
+            }
+            correctAnswer = optionsBuilder.toString();
+        }
 
         try {
             conn = DBConnection.getConnection();
             String query;
             
             if (questionId != null && !questionId.isEmpty()) {
-                query = "UPDATE questions SET text=?, question_type=?, difficulty=?, correct_answer=?, weight=?, assessment_id=? WHERE id=?";
+                query = "UPDATE questions SET text=?, question_type=?, difficulty=?, correct_answer=?, weight=?, test_id=? WHERE id=?";
             } else {
-                query = "INSERT INTO questions (text, question_type, difficulty, correct_answer, weight, assessment_id) VALUES (?, ?, ?, ?, ?, ?)";
+                query = "INSERT INTO questions (text, question_type, difficulty, correct_answer, weight, test_id) VALUES (?, ?, ?, ?, ?, ?)";
             }
             
             stmt = conn.prepareStatement(query);
@@ -45,7 +80,7 @@
             stmt.setInt(3, Integer.parseInt(difficulty));
             stmt.setString(4, correctAnswer);
             stmt.setFloat(5, Float.parseFloat(weight));
-            stmt.setInt(6, Integer.parseInt(assessmentId));
+            stmt.setInt(6, Integer.parseInt(testIdParam));
             
             if (questionId != null && !questionId.isEmpty()) {
                 stmt.setInt(7, Integer.parseInt(questionId));
@@ -55,6 +90,9 @@
             if (rows > 0) {
                 successMessage = (questionId != null && !questionId.isEmpty()) ? 
                     "Question updated successfully!" : "Question created successfully!";
+                // Redirect to show questions for the selected test
+                response.sendRedirect("questions.jsp?test_id=" + testIdParam);
+                return;
             }
         } catch (Exception e) {
             error = "Error processing question: " + e.getMessage();
@@ -86,8 +124,7 @@
     // Load questions with filters
     try {
         conn = DBConnection.getConnection();
-        StringBuilder queryBuilder = new StringBuilder(
-            "SELECT q.*, a.name as assessment_name FROM questions q JOIN assessments a ON q.assessment_id = a.id WHERE 1=1");
+        StringBuilder queryBuilder = new StringBuilder("SELECT q.*, t.title as test_title FROM questions q LEFT JOIN tests t ON q.test_id = t.id WHERE 1=1");
         
         if (!"all".equals(activeTab)) {
             queryBuilder.append(" AND q.question_type = ?");
@@ -97,6 +134,9 @@
         }
         if (difficultyFilter != null && !"all".equals(difficultyFilter)) {
             queryBuilder.append(" AND q.difficulty = ?");
+        }
+        if (testId != null && !testId.isEmpty()) {
+            queryBuilder.append(" AND q.test_id = ?");
         }
         
         stmt = conn.prepareStatement(queryBuilder.toString());
@@ -111,37 +151,32 @@
         if (difficultyFilter != null && !"all".equals(difficultyFilter)) {
             stmt.setInt(paramIndex++, Integer.parseInt(difficultyFilter));
         }
+        if (testId != null && !testId.isEmpty()) {
+            stmt.setInt(paramIndex++, Integer.parseInt(testId));
+        }
         
         rs = stmt.executeQuery();
         while (rs.next()) {
             Question question = new Question();
             question.setId(rs.getInt("id"));
-            question.setAssessmentId(rs.getInt("assessment_id"));
             question.setText(rs.getString("text"));
             question.setQuestionType(rs.getString("question_type"));
             question.setDifficulty(rs.getInt("difficulty"));
             question.setCorrectAnswer(rs.getString("correct_answer"));
             question.setWeight(rs.getFloat("weight"));
+           try {
+    java.lang.reflect.Method setTestId = question.getClass().getMethod("setTestId", int.class);
+    setTestId.invoke(question, rs.getInt("test_id"));
+    
+    java.lang.reflect.Method setTestTitle = question.getClass().getMethod("setTestTitle", String.class);
+    setTestTitle.invoke(question, rs.getString("test_title"));
+} catch (Exception e) {
+    // Methods don't exist, skip them
+}
             questions.add(question);
         }
     } catch (Exception e) {
         error = "Error loading questions: " + e.getMessage();
-    } finally {
-        if (rs != null) rs.close();
-        if (stmt != null) stmt.close();
-        if (conn != null) conn.close();
-    }
-
-    // Load assessments
-    try {
-        conn = DBConnection.getConnection();
-        stmt = conn.prepareStatement("SELECT * FROM assessments");
-        rs = stmt.executeQuery();
-        while (rs.next()) {
-            assessments.add(new Assessment(rs.getInt("id"), rs.getString("name")));
-        }
-    } catch (Exception e) {
-        error = "Error loading assessments: " + e.getMessage();
     } finally {
         if (rs != null) rs.close();
         if (stmt != null) stmt.close();
@@ -160,13 +195,17 @@
             if (rs.next()) {
                 questionToEdit = new Question();
                 questionToEdit.setId(rs.getInt("id"));
-                questionToEdit.setAssessmentId(rs.getInt("assessment_id"));
                 questionToEdit.setText(rs.getString("text"));
                 questionToEdit.setQuestionType(rs.getString("question_type"));
                 questionToEdit.setDifficulty(rs.getInt("difficulty"));
                 questionToEdit.setCorrectAnswer(rs.getString("correct_answer"));
                 questionToEdit.setWeight(rs.getFloat("weight"));
-            }
+try {
+    java.lang.reflect.Method setTestId = questionToEdit.getClass().getMethod("setTestId", int.class);
+    setTestId.invoke(questionToEdit, rs.getInt("test_id"));
+} catch (Exception e) {
+    // Method doesn't exist, skip it
+}            }
         } catch (Exception e) {
             error = "Error loading question for editing: " + e.getMessage();
         } finally {
@@ -182,7 +221,7 @@
 <head>
     <title>Assessment System - Question Bank</title>
     <style>
-        :root {
+:root {
             --primary-color: #3498db;
             --secondary-color: #2980b9;
             --light-gray: #f5f5f5;
@@ -557,6 +596,61 @@
             display: flex;
             gap: 10px;
             margin-top: 15px;
+        }        
+        /* New styles for test selector */
+        .test-selector {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .test-selector select {
+            flex: 1;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid var(--medium-gray);
+        }
+        
+        .test-selector button {
+            padding: 8px 15px;
+        }
+        
+        /* MCQ options styles */
+        .mcq-options-container {
+            display: none;
+            margin-top: 15px;
+        }
+        
+        .option-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .option-letter {
+            width: 30px;
+            font-weight: bold;
+        }
+        
+        .option-input {
+            flex: 1;
+        }
+        
+        .add-option-btn {
+            margin-top: 10px;
+        }
+        
+        .remove-option-btn {
+            margin-left: 10px;
+            color: var(--danger-color);
+            cursor: pointer;
+        }
+        
+        .test-info {
+            font-size: 0.9em;
+            color: var(--secondary-color);
+            margin-bottom: 10px;
         }
     </style>
 </head>
@@ -596,29 +690,45 @@
                 </div>
             <% } %>
 
+            <!-- Test Selector -->
+            <div class="test-selector">
+                <select id="testSelector">
+                    <option value="">-- Select a Test --</option>
+                    <% for (Test test : tests) { %>
+                        <option value="<%= test.getId() %>" <%= testId != null && testId.equals(String.valueOf(test.getId())) ? "selected" : "" %>>
+                            <%= test.getTitle() %>
+                        </option>
+                    <% } %>
+                </select>
+                <button class="btn btn-primary" onclick="createQuestionForTest()">Create Question for Selected Test</button>
+            </div>
+
+            <% if (testId != null) { %>
+                <div class="test-info">
+                    Currently viewing questions for: 
+                    <% for (Test test : tests) { %>
+                        <% if (test.getId() == Integer.parseInt(testId)) { %>
+                            <strong><%= test.getTitle() %></strong>
+                        <% } %>
+                    <% } %>
+                </div>
+            <% } %>
+
             <div class="card">
                 <div class="tab-container">
                     <div class="tabs">
-                        <a href="questions.jsp?tab=all" class="tab <%= "all".equals(activeTab) ? "active" : "" %>">All Questions</a>
-                        <a href="questions.jsp?tab=MCQ" class="tab <%= "MCQ".equals(activeTab) ? "active" : "" %>">Multiple Choice</a>
-                        <a href="questions.jsp?tab=Text" class="tab <%= "Text".equals(activeTab) ? "active" : "" %>">Text Answer</a>
-                        <a href="questions.jsp?tab=Coding" class="tab <%= "Coding".equals(activeTab) ? "active" : "" %>">Coding</a>
+                        <a href="questions.jsp?tab=all<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "all".equals(activeTab) ? "active" : "" %>">All Questions</a>
+                        <a href="questions.jsp?tab=MCQ<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "MCQ".equals(activeTab) ? "active" : "" %>">Multiple Choice</a>
+                        <a href="questions.jsp?tab=Text<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "Text".equals(activeTab) ? "active" : "" %>">Text Answer</a>
+                        <a href="questions.jsp?tab=Coding<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "Coding".equals(activeTab) ? "active" : "" %>">Coding</a>
                     </div>
                 </div>
 
                 <form method="get" action="questions.jsp" class="question-filters">
                     <input type="hidden" name="tab" value="<%= activeTab %>">
-                    <div class="filter-group">
-                        <label for="moduleFilter">Assessment</label>
-                        <select id="moduleFilter" name="module" class="form-control" onchange="this.form.submit()">
-                            <option value="all">All Assessments</option>
-                            <% for (Assessment a : assessments) { %>
-                                <option value="<%= a.getId() %>" <%= String.valueOf(a.getId()).equals(moduleFilter) ? "selected" : "" %>>
-                                    <%= a.getName() %>
-                                </option>
-                            <% } %>
-                        </select>
-                    </div>
+                    <% if (testId != null) { %>
+                        <input type="hidden" name="test_id" value="<%= testId %>">
+                    <% } %>
                     <div class="filter-group">
                         <label for="difficultyFilter">Difficulty</label>
                         <select id="difficultyFilter" name="difficulty" class="form-control" onchange="this.form.submit()">
@@ -640,13 +750,15 @@
                     + Add New Question
                 </button>
 
-                <!-- Question Form (initially hidden) -->
+                <!-- Question Form -->
                 <div class="card" id="questionForm" style="display: <%= questionToEdit != null ? "block" : "none" %>; margin-bottom: 20px;">
                     <h3><%= questionToEdit != null ? "Edit Question" : "Create New Question" %></h3>
-                    <form method="post" action="questions.jsp?tab=<%= activeTab %>">
+                    <form method="post" action="questions.jsp?tab=<%= activeTab %><%= testId != null ? "&test_id=" + testId : "" %>">
                         <% if (questionToEdit != null) { %>
                             <input type="hidden" name="question_id" value="<%= questionToEdit.getId() %>">
                         <% } %>
+                        
+                        <input type="hidden" name="test_id" id="form_test_id" value="<%= testId != null ? testId : "" %>">
                         
                         <div class="form-group">
                             <label for="text">Question Text</label>
@@ -655,12 +767,21 @@
 
                         <div class="form-group">
                             <label for="question_type">Question Type</label>
-                            <select name="question_type" id="question_type" class="form-control" required>
+                            <select name="question_type" id="question_type" class="form-control" required onchange="toggleMCQOptions()">
                                 <option value="">-- Select Type --</option>
                                 <option value="MCQ" <%= questionToEdit != null && "MCQ".equals(questionToEdit.getQuestionType()) ? "selected" : "" %>>Multiple Choice</option>
                                 <option value="Text" <%= questionToEdit != null && "Text".equals(questionToEdit.getQuestionType()) ? "selected" : "" %>>Text Answer</option>
                                 <option value="Coding" <%= questionToEdit != null && "Coding".equals(questionToEdit.getQuestionType()) ? "selected" : "" %>>Coding</option>
                             </select>
+                        </div>
+
+                        <!-- MCQ Options Container -->
+                        <div id="mcqOptionsContainer" class="mcq-options-container">
+                            <h4>Multiple Choice Options</h4>
+                            <div id="optionsContainer">
+                                <!-- Options will be added here dynamically -->
+                            </div>
+                            <button type="button" class="btn btn-primary add-option-btn" onclick="addOption()">+ Add Option</button>
                         </div>
 
                         <div class="form-group">
@@ -670,28 +791,13 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="correct_answer">Correct Answer</label>
-                            <input type="text" name="correct_answer" id="correct_answer" class="form-control" 
-                                   value="<%= questionToEdit != null ? questionToEdit.getCorrectAnswer() : "" %>" required>
-                        </div>
-
-                        <div class="form-group">
                             <label for="weight">Weight</label>
                             <input type="number" step="0.1" name="weight" id="weight" class="form-control" 
                                    value="<%= questionToEdit != null ? questionToEdit.getWeight() : "1.0" %>" required>
                         </div>
 
-                        <div class="form-group">
-                            <label for="assessment_id">Assessment</label>
-                            <select name="assessment_id" id="assessment_id" class="form-control" required>
-                                <option value="">-- Select Assessment --</option>
-                                <% for (Assessment a : assessments) { %>
-                                    <option value="<%= a.getId() %>" <%= (questionToEdit != null && questionToEdit.getAssessmentId() == a.getId()) ? "selected" : "" %>>
-                                        <%= a.getName() %>
-                                    </option>
-                                <% } %>
-                            </select>
-                        </div>
+                        <!-- Hidden field to store formatted correct answer -->
+                        <input type="hidden" name="correct_answer" id="correct_answer" value="">
 
                         <div class="form-actions">
                             <button class="btn btn-primary" type="submit">
@@ -704,6 +810,7 @@
                     </form>
                 </div>
 
+                <!-- Question List -->
                 <div class="question-list">
                     <% for (Question q : questions) { 
                         String difficultyClass = "";
@@ -722,33 +829,40 @@
                             </div>
                             <div class="question-text">
                                 <%= q.getText() %>
+                                <% 
+try {
+    java.lang.reflect.Method getTestTitle = q.getClass().getMethod("getTestTitle");
+    String testTitle = (String)getTestTitle.invoke(q);
+    if (testTitle != null) { %>
+        <div class="test-info">Test: <%= testTitle %></div>
+    <% }
+} catch (Exception e) {
+    // Method doesn't exist, skip it
+}
+%>
                             </div>
-                            <% if ("MCQ".equals(q.getQuestionType())) { %>
+                            <% if ("MCQ".equals(q.getQuestionType())) { 
+                                String[] options = q.getCorrectAnswer().split("\\|");
+                            %>
                                 <div class="question-options">
-                                    <!-- For MCQ, we'd need to parse the correct_answer as options -->
-                                    <div class="question-option <%= q.getCorrectAnswer().contains("A)") ? "correct" : "" %>">
-                                        A) Option 1
-                                    </div>
-                                    <div class="question-option <%= q.getCorrectAnswer().contains("B)") ? "correct" : "" %>">
-                                        B) Option 2
-                                    </div>
-                                    <!-- Add more options as needed -->
+                                    <% for (String option : options) { 
+                                        String[] parts = option.split("\\) ");
+                                        String letter = parts[0];
+                                        String text = parts.length > 1 ? parts[1] : "";
+                                    %>
+                                        <div class="question-option">
+                                            <%= letter %>) <%= text %>
+                                        </div>
+                                    <% } %>
                                 </div>
                             <% } %>
                             <div class="question-meta">
                                 <span>Type: <%= q.getQuestionType() %></span>
                                 <span>Weight: <%= q.getWeight() %></span>
-                                <span>Assessment: 
-                                    <% for (Assessment a : assessments) { %>
-                                        <% if (a.getId() == q.getAssessmentId()) { %>
-                                            <%= a.getName() %>
-                                        <% } %>
-                                    <% } %>
-                                </span>
                             </div>
                             <div class="question-actions">
-                                <a href="questions.jsp?edit_id=<%= q.getId() %>&tab=<%= activeTab %>" class="btn btn-sm btn-primary">Edit</a>
-                                <a href="questions.jsp?delete_id=<%= q.getId() %>&tab=<%= activeTab %>" 
+                                <a href="questions.jsp?edit_id=<%= q.getId() %>&tab=<%= activeTab %><%= testId != null ? "&test_id=" + testId : "" %>" class="btn btn-sm btn-primary">Edit</a>
+                                <a href="questions.jsp?delete_id=<%= q.getId() %>&tab=<%= activeTab %><%= testId != null ? "&test_id=" + testId : "" %>" 
                                    class="btn btn-sm btn-danger" 
                                    onclick="return confirm('Are you sure you want to delete this question?')">Delete</a>
                             </div>
@@ -782,6 +896,108 @@
                 this.form.submit();
             }
         });
+        
+        // Create question for selected test
+        function createQuestionForTest() {
+            const testSelector = document.getElementById('testSelector');
+            const selectedTestId = testSelector.value;
+            
+            if (selectedTestId) {
+                // Set the test ID in the form
+                document.getElementById('form_test_id').value = selectedTestId;
+                
+                // Show the question form
+                document.getElementById('questionForm').style.display = 'block';
+                
+                // Reset form if not editing
+                <% if (questionToEdit == null) { %>
+                    document.querySelector('#questionForm form').reset();
+                    document.getElementById('optionsContainer').innerHTML = '';
+                <% } %>
+                
+                // Scroll to the form
+                document.getElementById('questionForm').scrollIntoView({ behavior: 'smooth' });
+            } else {
+                alert('Please select a test first');
+            }
+        }
+        
+        // Toggle MCQ options based on question type
+        function toggleMCQOptions() {
+            const questionType = document.getElementById('question_type').value;
+            const mcqContainer = document.getElementById('mcqOptionsContainer');
+            
+            if (questionType === 'MCQ') {
+                mcqContainer.style.display = 'block';
+                // Initialize with 4 options if empty
+                if (document.getElementById('optionsContainer').children.length === 0) {
+                    for (let i = 0; i < 4; i++) {
+                        addOption(String.fromCharCode(65 + i));
+                    }
+                }
+            } else {
+                mcqContainer.style.display = 'none';
+            }
+        }
+        
+        // Add new option
+        function addOption(letter = null) {
+            const container = document.getElementById('optionsContainer');
+            const optionCount = container.children.length;
+            const optionLetter = letter || String.fromCharCode(65 + optionCount);
+            
+            const optionRow = document.createElement('div');
+            optionRow.className = 'option-row';
+            optionRow.innerHTML = `
+                <div class="option-letter">${optionLetter})</div>
+                <input type="hidden" name="options" value="${optionLetter}">
+                <input type="text" name="option_text" class="form-control option-input" placeholder="Option text" required>
+                <span class="remove-option-btn" onclick="this.parentElement.remove()">×</span>
+            `;
+            
+            container.appendChild(optionRow);
+        }
+        
+        // Format MCQ options before submission
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const questionType = document.getElementById('question_type').value;
+            
+            if (questionType === 'MCQ') {
+                const options = document.getElementsByName('options');
+                const optionTexts = document.getElementsByName('option_text');
+                let correctAnswer = '';
+                
+                for (let i = 0; i < options.length; i++) {
+                    correctAnswer += options[i].value + ') ' + optionTexts[i].value;
+                    if (i < options.length - 1) {
+                        correctAnswer += '|';
+                    }
+                }
+                
+                document.getElementById('correct_answer').value = correctAnswer;
+            }
+        });
+        
+        // Initialize MCQ options if editing an MCQ question
+        <% if (questionToEdit != null && "MCQ".equals(questionToEdit.getQuestionType())) { %>
+            window.onload = function() {
+                document.getElementById('question_type').dispatchEvent(new Event('change'));
+                const options = '<%= questionToEdit.getCorrectAnswer() %>'.split('|');
+                const container = document.getElementById('optionsContainer');
+                container.innerHTML = '';
+                
+                options.forEach(option => {
+                    const parts = option.split(') ');
+                    const letter = parts[0];
+                    const text = parts.length > 1 ? parts[1] : '';
+                    addOption(letter);
+                    
+                    // Set the option text
+                    const inputs = container.getElementsByTagName('input');
+                    inputs[inputs.length - 1].value = text;
+                });
+            };
+        <% } %>
     </script>
 </body>
 </html>

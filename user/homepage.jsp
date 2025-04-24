@@ -1,10 +1,11 @@
+<%@ page import="my_pack.AssessmentManager, my_pack.DBConnection, java.util.List, java.util.Map, java.sql.*" %>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User - Homepage</title>
-    <style>
+ <style>
         :root {
             --primary-color: #3498db;
             --secondary-color: #2980b9;
@@ -122,20 +123,15 @@
             overflow: hidden;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease;
+            padding: 20px;
         }
         
         .card:hover {
             transform: translateY(-5px);
         }
         
-        .card-image {
-            width: 100%;
-            height: 180px;
-            object-fit: cover;
-        }
-        
         .card-content {
-            padding: 20px;
+            padding: 0;
         }
         
         .card-title {
@@ -231,6 +227,11 @@
             font-weight: 600;
         }
         
+        .status-pending {
+            color: var(--warning-color);
+            font-weight: 600;
+        }
+        
         .recruiter-button {
             background-color: var(--primary-color);
             color: white;
@@ -241,6 +242,8 @@
             cursor: pointer;
             transition: background-color 0.3s ease;
             margin-top: 15px;
+            text-decoration: none;
+            display: inline-block;
         }
         
         .recruiter-button:hover {
@@ -265,9 +268,89 @@
             background-color: var(--medium-gray);
             margin: 30px 0;
         }
-    </style>
+    </style>   
+    <script>
+        function scrollToSection(event) {
+            event.preventDefault();
+            const targetId = event.target.getAttribute('href');
+            const targetElement = document.querySelector(targetId);
+            if (targetElement) {
+                window.scrollTo({
+                    top: targetElement.offsetTop - 20,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    function handleRecruiterRequest(userName, userEmail) {
+        const mailtoLink = `mailto:marwanam980@gmail.com?subject=Recruiter Application Request&body=Dear Admin,%0D%0A%0D%0AI would like to request recruiter access for my account.%0D%0A%0D%0AUser Details:%0D%0AName: ${userName}%0D%0AEmail: ${userEmail}%0D%0A%0D%0AThank you,%0D%0A${userName}`;
+        window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=marwanam980@gmail.com&su=Recruiter Application Request&body=${body}`)
+        window.location.href = mailtoLink;
+        alert("Your email client will open with a pre-filled request. Please send the email to complete your application.");
+        return false;
+    }
+        document.addEventListener('DOMContentLoaded', function() {
+            const navLinks = document.querySelectorAll('nav a');
+            navLinks.forEach(link => {
+                link.addEventListener('click', scrollToSection);
+            });
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('search')) {
+                const searchTerm = urlParams.get('search');
+                if (searchTerm) {
+                    window.scrollTo({
+                        top: document.getElementById('assessments').offsetTop - 20,
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        });
+    </script>
 </head>
 <body>
+    <% 
+        // Static user profile
+        String userName = "Marwan Amr Taher";
+        String userEmail = "marwanam980@gmail.com";
+        int userId = 1;
+        
+        // Get search query if exists
+        String searchQuery = request.getParameter("search");
+        boolean isSearching = searchQuery != null && !searchQuery.trim().isEmpty();
+        
+        // Get assessments from database
+        AssessmentManager assessmentManager = new AssessmentManager();
+        List<Map<String, String>> assessments = isSearching ? 
+            assessmentManager.searchAssessmentsByName(searchQuery.trim()) : 
+            assessmentManager.getAllAssessments();
+        
+        // Get test history from database
+        List<Map<String, String>> testHistory = new java.util.ArrayList<>();
+        String historyQuery = "SELECT t.title, tr.score, tr.status, tr.id " +
+                             "FROM test_results tr " +
+                             "JOIN tests t ON tr.test_id = t.id " +
+                             "WHERE tr.user_id = ? " +
+                             "ORDER BY tr.id DESC";
+        
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(historyQuery)) {
+            
+            pstmt.setInt(1, userId);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                java.util.Map<String, String> historyItem = new java.util.HashMap<>();
+                historyItem.put("title", rs.getString("title"));
+                historyItem.put("score", rs.getString("score"));
+                historyItem.put("status", rs.getString("status"));
+                historyItem.put("id", rs.getString("id"));
+                testHistory.add(historyItem);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    %>
+    
     <!-- Navbar -->
     <header>
         <div class="header-container">
@@ -285,59 +368,43 @@
     <div class="container">
         <!-- Search Bar -->
         <div class="search-container">
-            <div class="search-bar">
-                <input type="text" class="search-input" placeholder="Search Assessments...">
-                <button class="search-button">
+            <form action="homepage.jsp" method="get" class="search-bar">
+                <input type="text" class="search-input" name="search" placeholder="Search Assessments..." 
+                       value="<%= isSearching ? searchQuery : "" %>">
+                <button type="submit" class="search-button">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="11" cy="11" r="8"></circle>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                 </button>
-            </div>
+            </form>
         </div>
 
         <!-- Assessment Cards -->
         <section id="assessments">
-            <h2 class="section-title">Available Assessments</h2>
+            <h2 class="section-title">
+                <%= isSearching ? "Search Results" : "Available Assessments" %>
+                <% if (isSearching) { %>
+                    <span class="search-results-term">for "<%= searchQuery %>"</span>
+                <% } %>
+            </h2>
             <div class="card-grid">
-                <!-- Card 1 -->
-                <div class="card">
-                    <img src="https://via.placeholder.com/500x300/f5f5f5/333?text=Java" alt="Java Assessment" class="card-image">
-                    <div class="card-content">
-                        <h3 class="card-title">Java Skill Test</h3>
-                        <p class="card-description">This test covers the basics of Java programming, including syntax, data types, and object-oriented concepts.</p>
-                        <div class="card-footer">
-                            <span class="card-duration">30 Minutes</span>
-                            <a href="#" class="start-button">Start Test</a>
+                <% if (assessments != null && !assessments.isEmpty()) { %>
+                    <% for (Map<String, String> assessment : assessments) { %>
+                        <div class="card">
+                            <div class="card-content">
+                                <h3 class="card-title"><%= assessment.get("name") %></h3>
+                                <p class="card-description"><%= assessment.get("description") %></p>
+                                <div class="card-footer">
+                                    <span class="card-duration">30 Minutes</span>
+                                    <a href="#" class="start-button">Start Test</a>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- Card 2 -->
-                <div class="card">
-                    <img src="https://via.placeholder.com/500x300/f5f5f5/333?text=Flutter" alt="Flutter Assessment" class="card-image">
-                    <div class="card-content">
-                        <h3 class="card-title">Flutter Basics Test</h3>
-                        <p class="card-description">A beginner-level test focusing on fundamental concepts of Flutter and Dart programming.</p>
-                        <div class="card-footer">
-                            <span class="card-duration">45 Minutes</span>
-                            <a href="#" class="start-button">Start Test</a>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Card 3 -->
-                <div class="card">
-                    <img src="https://via.placeholder.com/500x300/f5f5f5/333?text=Python" alt="Python Assessment" class="card-image">
-                    <div class="card-content">
-                        <h3 class="card-title">Python Advanced Test</h3>
-                        <p class="card-description">This test will evaluate your understanding of advanced Python topics such as decorators, generators, and context managers.</p>
-                        <div class="card-footer">
-                            <span class="card-duration">60 Minutes</span>
-                            <a href="#" class="start-button">Start Test</a>
-                        </div>
-                    </div>
-                </div>
+                    <% } %>
+                <% } else { %>
+                    <p>No assessments found <%= isSearching ? "matching your search" : "available at the moment" %>.</p>
+                <% } %>
             </div>
         </section>
 
@@ -348,12 +415,12 @@
             <h2 class="profile-header">Your Profile</h2>
             <div class="profile-info">
                 <div class="profile-item">
-                    <span class="profile-label">Name:</span> Marwan Amr Taher
+                    <span class="profile-label">Name:</span> <%= userName %>
                 </div>
                 <div class="profile-item">
-                    <span class="profile-label">Email:</span> marwanam980@gmail.com
+                    <span class="profile-label">Email:</span> <%= userEmail %>
                 </div>
-            
+            </div>
         </section>
 
         <!-- Test History Section -->
@@ -363,24 +430,26 @@
                 <thead>
                     <tr>
                         <th>Test Title</th>
-                        <th>Date</th>
-                        <th>Status</th>
                         <th>Score</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>Java Basics Test</td>
-                        <td>March 12, 2025</td>
-                        <td class="status-completed">Completed</td>
-                        <td>85%</td>
-                    </tr>
-                    <tr>
-                        <td>Flutter Basics Test</td>
-                        <td>March 15, 2025</td>
-                        <td class="status-completed">Completed</td>
-                        <td>90%</td>
-                    </tr>
+                    <% if (testHistory != null && !testHistory.isEmpty()) { %>
+                        <% for (Map<String, String> history : testHistory) { %>
+                            <tr>
+                                <td><%= history.get("title") %></td>
+                                <td><%= history.get("score") != null ? history.get("score") + "%" : "N/A" %></td>
+                                <td class="<%= "completed".equalsIgnoreCase(history.get("status")) ? "status-completed" : "status-pending" %>">
+                                    <%= history.get("status") %>
+                                </td>
+                            </tr>
+                        <% } %>
+                    <% } else { %>
+                        <tr>
+                            <td colspan="3">No test history available</td>
+                        </tr>
+                    <% } %>
                 </tbody>
             </table>
         </section>
@@ -388,12 +457,15 @@
         <div class="divider"></div>
 
         <!-- Become a Recruiter Section -->
-        <section id="recruiter" class="recruiter-section">
-            <h2 class="profile-header">Become a Recruiter</h2>
-            <p>If you're interested in becoming a recruiter and accessing the platform's recruitment features, you can apply here:</p>
-            <button class="recruiter-button">Request to be a Recruiter</button>
-        </section>
-
+<!-- Become a Recruiter Section -->
+<section id="recruiter" class="recruiter-section">
+    <h2 class="profile-header">Become a Recruiter</h2>
+    <p>If you're interested in becoming a recruiter and accessing the platform's recruitment features, you can apply here:</p>
+    <button class="recruiter-button" 
+            onclick="return handleRecruiterRequest('<%= userName %>', '<%= userEmail %>')">
+        Request to be a Recruiter
+    </button>
+</section>
         <!-- About Section -->
         <section id="about" class="about-section">
             <h2 class="profile-header">About the Platform</h2>

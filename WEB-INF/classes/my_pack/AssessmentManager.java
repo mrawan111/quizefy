@@ -112,4 +112,27 @@ public class AssessmentManager {
         }
         return null;
     }
+    public List<Map<String, String>> searchAssessmentsByName(String searchTerm) {
+    List<Map<String, String>> assessments = new ArrayList<>();
+    String query = "SELECT id, name, description FROM assessments WHERE LOWER(name) LIKE LOWER(?) ORDER BY id";
+    
+    try (Connection conn = connect();
+         PreparedStatement ps = conn.prepareStatement(query)) {
+        
+        ps.setString(1, "%" + searchTerm + "%");
+        ResultSet rs = ps.executeQuery();
+        
+        while (rs.next()) {
+            Map<String, String> assessment = new HashMap<>();
+            assessment.put("id", rs.getString("id"));
+            assessment.put("name", rs.getString("name"));
+            assessment.put("description", rs.getString("description"));
+            assessments.add(assessment);
+        }
+    } catch (SQLException e) {
+        System.err.println("Error searching assessments: " + e.getMessage());
+        e.printStackTrace();
+    }
+    return assessments;
+}
 }

@@ -8,7 +8,10 @@ public class Question {
     private int difficulty;
     private String correctAnswer;
     private float weight;
-    
+        private String testTitle;
+            private int testId;
+
+
     // Constructors
     public Question() {}
     
@@ -42,4 +45,16 @@ public class Question {
     
     public float getWeight() { return weight; }
     public void setWeight(float weight) { this.weight = weight; }
+    
+    public void setTestId(int testId) {
+        this.testId = testId;
+    }
+
+    public String getTestTitle() {
+        return testTitle;
+    }
+
+    public void setTestTitle(String testTitle) {
+        this.testTitle = testTitle;
+    }
 }
