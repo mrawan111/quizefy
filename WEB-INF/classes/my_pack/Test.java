@@ -7,23 +7,30 @@ public class Test {
     private String title;
     private String description;
     private String assessmentName;
-    private int recruiterId;
     private Date createdDate;
     private int targetDifficulty;
 
+    private int assessmentId; 
     public Test() {
     }
 
-    public Test(int id, String title, String description, String assessmentName, int recruiterId, Date createdDate, int targetDifficulty) {
-        this.id = id;
-        this.title = title;
-        this.description = description;
-        this.assessmentName = assessmentName;
-        this.recruiterId = recruiterId;
-        this.createdDate = createdDate;
-        this.targetDifficulty = targetDifficulty;
-    }
+ public Test(int id, String title, String description, String assessmentName, int assessmentId, Date createdDate, int targetDifficulty) {
+    this.id = id;
+    this.title = title;
+    this.description = description;
+    this.assessmentName = assessmentName;
+    this.assessmentId = assessmentId;
+    this.createdDate = createdDate;
+    this.targetDifficulty = targetDifficulty;
+}
 
+public int getAssessmentId() {
+    return assessmentId;
+}
+
+public void setAssessmentId(int assessmentId) {
+    this.assessmentId = assessmentId;
+}
     // Getters and Setters
     public int getId() {
         return id;
@@ -57,14 +64,7 @@ public class Test {
         this.assessmentName = assessmentName;
     }
 
-    public int getRecruiterId() {
-        return recruiterId;
-    }
-
-    public void setRecruiterId(int recruiterId) {
-        this.recruiterId = recruiterId;
-    }
-
+  
     public Date getCreatedDate() {
         return createdDate;
     }

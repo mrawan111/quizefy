@@ -1,3 +1,58 @@
+<%@ page import="java.sql.*" %>
+<%@ page import="my_pack.DBConnection" %>
+
+<%
+    // Handle form submission
+    if ("POST".equalsIgnoreCase(request.getMethod())) {
+        // Handle new user creation
+        if (request.getParameter("createUser") != null) {
+            String name = request.getParameter("name");
+            String email = request.getParameter("email");
+            String password = request.getParameter("password");
+            String role = request.getParameter("role");
+            
+            try (Connection conn = DBConnection.getConnection()) {
+                String sql = "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)";
+                PreparedStatement stmt = conn.prepareStatement(sql);
+                stmt.setString(1, name);
+                stmt.setString(2, email);
+                stmt.setString(3, password);
+                stmt.setString(4, role);
+                stmt.executeUpdate();
+            } catch (Exception e) {
+                out.println("<p style='color:red'>Error creating user: " + e.getMessage() + "</p>");
+            }
+        }
+        // Handle role update separately
+        else if (request.getParameter("updateRole") != null) {
+            int userId = Integer.parseInt(request.getParameter("userId"));
+            String newRole = request.getParameter("newRole");
+            try (Connection conn = DBConnection.getConnection()) {
+                String sql = "UPDATE users SET role = ? WHERE id = ?";
+                PreparedStatement stmt = conn.prepareStatement(sql);
+                stmt.setString(1, newRole);
+                stmt.setInt(2, userId);
+                stmt.executeUpdate();
+            } catch (Exception e) {
+                out.println("<p style='color:red'>Error updating role: " + e.getMessage() + "</p>");
+            }
+        }
+    }
+
+    // Handle deletion
+    if (request.getParameter("delete") != null) {
+        int id = Integer.parseInt(request.getParameter("delete"));
+        try (Connection conn = DBConnection.getConnection()) {
+            String sql = "DELETE FROM users WHERE id = ?";
+            PreparedStatement stmt = conn.prepareStatement(sql);
+            stmt.setInt(1, id);
+            stmt.executeUpdate();
+        } catch (Exception e) {
+            out.println("<p style='color:red'>Error: " + e.getMessage() + "</p>");
+        }
+    }
+%>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -240,7 +295,7 @@
             color: #155724;
         }
         
-        .role-user {
+        .role-candidate {
             background-color: #fff3cd;
             color: #856404;
         }
@@ -266,6 +321,40 @@
         
         .footer p {
             margin-bottom: 5px;
+        }
+        
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 50%;
+            border-radius: 8px;
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: black;
         }
         
         /* Responsive adjustments */
@@ -298,14 +387,18 @@
             .form-control {
                 width: 100%;
             }
+            
+            .modal-content {
+                width: 90%;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-<div class="sidebar">
+        <div class="sidebar">
             <h2>Quizefy System</h2>
-           <ul class="sidebar-menu">
+            <ul class="sidebar-menu">
                 <li><a href="index.jsp" class="active">Dashboard</a></li>
                 <li><a href="assessments.jsp">Manage Assessments</a></li>
                 <li><a href="manageTests.jsp">Manage Tests</a></li>
@@ -333,33 +426,30 @@
                 <!-- User Creation Form (initially hidden) -->
                 <div class="card" id="userForm" style="display: none; margin-bottom: 20px;">
                     <h3>Create New User</h3>
-                    <div class="form-group">
-                        <label for="userName">Name</label>
-                        <input type="text" id="userName" class="form-control" placeholder="Enter full name">
-                    </div>
-                    <div class="form-group">
-                        <label for="userEmail">Email</label>
-                        <input type="email" id="userEmail" class="form-control" placeholder="Enter email address">
-                    </div>
-                    <div class="form-group">
-                        <label for="userRole">Role</label>
-                        <select id="userRole" class="form-control">
-                            <option value="admin">Admin</option>
-                            <option value="recruiter">Recruiter</option>
-                            <option value="user">Candidate</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="userModules">Assign Modules</label>
-                        <select id="userModules" class="form-control" multiple>
-                            <option value="js">JavaScript Basics</option>
-                            <option value="python">Python Intermediate</option>
-                            <option value="react">React Essentials</option>
-                            <option value="db">Database Design</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-primary">Create User</button>
-                    <button class="btn" onclick="document.getElementById('userForm').style.display='none'">Cancel</button>
+                    <form method="POST">
+                        <div class="form-group">
+                            <label for="userName">Name</label>
+                            <input type="text" id="userName" name="name" class="form-control" placeholder="Enter full name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="userEmail">Email</label>
+                            <input type="email" id="userEmail" name="email" class="form-control" placeholder="Enter email address" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="userPassword">Password</label>
+                            <input type="password" id="userPassword" name="password" class="form-control" placeholder="Enter password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="userRole">Role</label>
+                            <select id="userRole" name="role" class="form-control" required>
+                                <option value="admin">Admin</option>
+                                <option value="recruiter">Recruiter</option>
+                                <option value="candidate">Candidate</option>
+                            </select>
+                        </div>
+                        <button type="submit" name="createUser" class="btn btn-primary">Create User</button>
+                        <button type="button" class="btn" onclick="document.getElementById('userForm').style.display='none'">Cancel</button>
+                    </form>
                 </div>
 
                 <table>
@@ -368,62 +458,84 @@
                             <th>User</th>
                             <th>Email</th>
                             <th>Role</th>
-                            <th>Assigned Modules</th>
-                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
+                        <%
+                            try (Connection conn = DBConnection.getConnection()) {
+                                Statement stmt = conn.createStatement();
+                                ResultSet rs = stmt.executeQuery("SELECT * FROM users");
+                                while (rs.next()) {
+                                    String roleClass = "";
+                                    switch(rs.getString("role")) {
+                                        case "admin":
+                                            roleClass = "role-admin";
+                                            break;
+                                        case "recruiter":
+                                            roleClass = "role-recruiter";
+                                            break;
+                                        case "candidate":
+                                            roleClass = "role-candidate";
+                                            break;
+                                    }
+                                    
+                                    // Get initials for avatar
+                                    String name = rs.getString("name");
+                                    String[] nameParts = name.split(" ");
+                                    String initials = "";
+                                    for (String part : nameParts) {
+                                        if (!part.isEmpty()) {
+                                            initials += part.substring(0, 1).toUpperCase();
+                                        }
+                                    }
+                                    if (initials.length() > 2) {
+                                        initials = initials.substring(0, 2);
+                                    }
+                        %>
                         <tr>
                             <td>
                                 <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div class="user-avatar-sm">JD</div>
-                                    <span>John Doe</span>
+                                    <div class="user-avatar-sm"><%= initials %></div>
+                                    <span><%= name %></span>
                                 </div>
                             </td>
-                            <td>john.doe@example.com</td>
-                            <td><span class="role-badge role-admin">Admin</span></td>
-                            <td>All Modules</td>
-                            <td class="status-active">Active</td>
+                            <td><%= rs.getString("email") %></td>
+                            <td><span class="role-badge <%= roleClass %>"><%= rs.getString("role") %></span></td>
                             <td>
-                                <button class="btn btn-sm btn-primary">Edit</button>
-                                <button class="btn btn-sm btn-danger">Deactivate</button>
+                                <button class="btn btn-sm btn-primary" onclick="openRoleModal(<%= rs.getInt("id") %>, '<%= rs.getString("role") %>')">Change Role</button>
+                                <a href="?delete=<%= rs.getInt("id") %>" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this user?')">Delete</a>
                             </td>
                         </tr>
-                        <tr>
-                            <td>
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div class="user-avatar-sm">RS</div>
-                                    <span>Recruiter Smith</span>
-                                </div>
-                            </td>
-                            <td>recruiter@company.com</td>
-                            <td><span class="role-badge role-recruiter">Recruiter</span></td>
-                            <td>JavaScript, React</td>
-                            <td class="status-active">Active</td>
-                            <td>
-                                <button class="btn btn-sm btn-primary">Edit</button>
-                                <button class="btn btn-sm btn-danger">Deactivate</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div class="user-avatar-sm">CT</div>
-                                    <span>Candidate Taylor</span>
-                                </div>
-                            </td>
-                            <td>candidate.t@example.com</td>
-                            <td><span class="role-badge role-user">Candidate</span></td>
-                            <td>Python, Database</td>
-                            <td class="status-active">Active</td>
-                            <td>
-                                <button class="btn btn-sm btn-primary">Edit</button>
-                                <button class="btn btn-sm btn-danger">Deactivate</button>
-                            </td>
-                        </tr>
+                        <%
+                                }
+                            } catch (Exception e) {
+                                out.println("<tr><td colspan='4'>Error loading users: " + e.getMessage() + "</td></tr>");
+                            }
+                        %>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Role Update Modal -->
+            <div id="roleModal" class="modal">
+                <div class="modal-content">
+                    <span class="close" onclick="closeRoleModal()">&times;</span>
+                    <h3>Update User Role</h3>
+                    <form method="POST">
+                        <input type="hidden" id="modalUserId" name="userId">
+                        <div class="form-group">
+                            <label for="modalNewRole">Select New Role</label>
+                            <select id="modalNewRole" name="newRole" class="form-control">
+                                <option value="admin">Admin</option>
+                                <option value="recruiter">Recruiter</option>
+                                <option value="candidate">Candidate</option>
+                            </select>
+                        </div>
+                        <button type="submit" name="updateRole" class="btn btn-primary">Update Role</button>
+                        <button type="button" class="btn" onclick="closeRoleModal()">Cancel</button>
+                    </form>
+                </div>
             </div>
 
             <div class="footer">
@@ -434,9 +546,28 @@
     </div>
 
     <script>
+        // Toggle user creation form
         document.getElementById('addUserBtn').addEventListener('click', function() {
             document.getElementById('userForm').style.display = 'block';
         });
+        
+        // Role modal functions
+        function openRoleModal(userId, currentRole) {
+            document.getElementById('modalUserId').value = userId;
+            document.getElementById('modalNewRole').value = currentRole;
+            document.getElementById('roleModal').style.display = 'block';
+        }
+        
+        function closeRoleModal() {
+            document.getElementById('roleModal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('roleModal')) {
+                closeRoleModal();
+            }
+        }
     </script>
 </body>
 </html>

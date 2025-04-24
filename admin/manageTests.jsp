@@ -9,8 +9,6 @@
 
 
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
-
-
 <%
     Connection conn = null;
     PreparedStatement stmt = null;
@@ -18,49 +16,79 @@
     List<Assessment> assessments = new ArrayList<>();
     List<Test> tests = new ArrayList<>();
     String error = null;
+    String successMessage = null;
+// Handle form submission (Create or Edit Test)
+// Handle form submission (Create or Edit Test)
+if ("POST".equalsIgnoreCase(request.getMethod())) {
+    String title = request.getParameter("title");
+    String assessmentId = request.getParameter("assessment_id");
+    String targetDifficulty = request.getParameter("target_difficulty");
+    String testId = request.getParameter("test_id");
 
-    // Handle form submission
-    if ("POST".equalsIgnoreCase(request.getMethod())) {
-        String title = request.getParameter("title");
-        String created_date = request.getParameter("created_date");
-        String assessmentId = request.getParameter("assessment_id");
-        String recruiterId = request.getParameter("recruiter_id");
-        String targetDifficulty = request.getParameter("target_difficulty");
+    try {
+        conn = DBConnection.getConnection();
 
+        String query = (testId != null && !testId.isEmpty()) ?
+            "UPDATE tests SET title = ?, assessment_id = ?, target_difficulty = ?, created_date = ? WHERE id = ?" :
+            "INSERT INTO tests (title, assessment_id, created_date, target_difficulty) VALUES (?, ?, ?, ?)";
+
+        stmt = conn.prepareStatement(query);
+
+        // Always use current date
+        java.sql.Date createdDate = java.sql.Date.valueOf(LocalDate.now());
+
+        // Set parameters
+        stmt.setString(1, title);
+        stmt.setInt(2, Integer.parseInt(assessmentId));
+
+        if (testId != null && !testId.isEmpty()) {
+            stmt.setInt(3, Integer.parseInt(targetDifficulty));
+            stmt.setDate(4, createdDate);
+            stmt.setInt(5, Integer.parseInt(testId));
+        } else {
+            stmt.setDate(3, createdDate);
+            stmt.setInt(4, Integer.parseInt(targetDifficulty));
+        }
+
+        int rows = stmt.executeUpdate();
+        if (rows > 0) {
+            successMessage = (testId != null && !testId.isEmpty()) ?
+                "Test updated successfully!" : "Test created successfully!";
+        } else {
+            error = "Failed to process test.";
+        }
+    } catch (Exception e) {
+        error = "Error processing test: " + e.getMessage();
+    } finally {
+        if (stmt != null) stmt.close();
+        if (conn != null) conn.close();
+    }
+}
+
+
+
+    // Delete test functionality
+    String deleteId = request.getParameter("delete_id");
+    if (deleteId != null) {
         try {
             conn = DBConnection.getConnection();
-            String insertSQL = "    ) VALUES (?, ?, ?, ?, ?)";
-            stmt = conn.prepareStatement(insertSQL);
-            stmt.setString(1, title);
-            stmt.setInt(2, Integer.parseInt(assessmentId));
-            stmt.setInt(3, Integer.parseInt(recruiterId));
-            stmt.setDate(4, java.sql.Date.valueOf(LocalDate.now())); // Use system date
-            stmt.setInt(5, Integer.parseInt(targetDifficulty));
-
-            int rows = stmt.executeUpdate();
-            if (rows > 0) {
-                out.println("<div class='alert alert-success'>Test created successfully!</div>");
-            } else {
-                out.println("<div class='alert alert-danger'>Failed to create test.</div>");
-            }
+            stmt = conn.prepareStatement("DELETE FROM tests WHERE id = ?");
+            stmt.setInt(1, Integer.parseInt(deleteId));
+            stmt.executeUpdate();
+            conn.close();
         } catch (Exception e) {
-            out.println("<div class='alert alert-danger'>Error creating test: " + e.getMessage() + "</div>");
-        } finally {
-            if (stmt != null) stmt.close();
-            if (conn != null) conn.close();
+            error = "Error deleting test: " + e.getMessage();
         }
     }
 
-
+    // Load assessments
     try {
         conn = DBConnection.getConnection();
         stmt = conn.prepareStatement("SELECT * FROM assessments");
         rs = stmt.executeQuery();
         while (rs.next()) {
             assessments.add(new Assessment(rs.getInt("id"), rs.getString("name")));
-            
         }
-        out.println("Loaded " + assessments.size() + " assessments.");
     } catch (Exception e) {
         error = "Failed to load assessments: " + e.getMessage();
     } finally {
@@ -71,24 +99,52 @@
 
     // Load tests for listing
     try {
-        conn = DBConnection.getConnection();
-        stmt = conn.prepareStatement("SELECT t.id, t.title,  a.name as assessment_name FROM tests t JOIN assessments a ON t.assessment_id = a.id");
-        rs = stmt.executeQuery();
-        while (rs.next()) {
-            Test test = new Test();
-            test.setId(rs.getInt("id"));
-            test.setTitle(rs.getString("title"));
-            test.setAssessmentName(rs.getString("assessment_name")); // Make sure your model has this
-            tests.add(test);
+    conn = DBConnection.getConnection();
+    stmt = conn.prepareStatement("SELECT t.id, t.title, t.target_difficulty, t.created_date, a.name as assessment_name FROM tests t JOIN assessments a ON t.assessment_id = a.id");
+    rs = stmt.executeQuery();
+    while (rs.next()) {
+        Test test = new Test();
+        test.setId(rs.getInt("id"));
+        test.setTitle(rs.getString("title"));
+        test.setAssessmentName(rs.getString("assessment_name"));
+        test.setTargetDifficulty(rs.getInt("target_difficulty"));
+        test.setCreatedDate(rs.getDate("created_date"));
+        tests.add(test);
+    }
+} catch (Exception e) {
+    error = "Error loading tests: " + e.getMessage();
+} finally {
+    if (rs != null) rs.close();
+    if (stmt != null) stmt.close();
+    if (conn != null) conn.close();
+}
+
+    // Load test details for edit if there's an 'id' parameter
+    Test testToEdit = null;
+    String testIdToEdit = request.getParameter("id");
+    if (testIdToEdit != null && !testIdToEdit.isEmpty()) {
+        try {
+            conn = DBConnection.getConnection();
+            stmt = conn.prepareStatement("SELECT * FROM tests WHERE id = ?");
+            stmt.setInt(1, Integer.parseInt(testIdToEdit));
+            rs = stmt.executeQuery();
+            if (rs.next()) {
+                testToEdit = new Test();
+                testToEdit.setId(rs.getInt("id"));
+                testToEdit.setTitle(rs.getString("title"));
+                testToEdit.setAssessmentId(rs.getInt("assessment_id"));
+                testToEdit.setTargetDifficulty(rs.getInt("target_difficulty"));
+            }
+        } catch (Exception e) {
+            error = "Error loading test details for editing: " + e.getMessage();
+        } finally {
+            if (rs != null) rs.close();
+            if (stmt != null) stmt.close();
+            if (conn != null) conn.close();
         }
-    } catch (Exception e) {
-        error = "Error loading tests: " + e.getMessage();
-    } finally {
-        if (rs != null) rs.close();
-        if (stmt != null) stmt.close();
-        if (conn != null) conn.close();
     }
 %>
+
 
     <!DOCTYPE html>
     <html lang="en">
@@ -320,45 +376,47 @@
                 margin: 20px 0;
             }
         </style></head>
-    <body>
-    <div class="container">
-        <div class="sidebar">
-            <h2>Quizefy System</h2>
-              <ul class="sidebar-menu">
-                <li><a href="index.jsp" class="active">Dashboard</a></li>
-                <li><a href="assessments.jsp">Manage Assessments</a></li>
-                <li><a href="manageTests.jsp">Manage Tests</a></li>
-                <li><a href="users.jsp">Manage Users</a></li>
-                <li><a href="reports.jsp">Performance Reports</a></li>
-                <li><a href="questions.jsp">Question Bank</a></li>
-            </ul>
-        </div>
+ <body>
+<div class="container">
+    <div class="sidebar">
+        <h2>Quizefy System</h2>
+        <ul class="sidebar-menu">
+            <li><a href="index.jsp" class="active">Dashboard</a></li>
+            <li><a href="assessments.jsp">Manage Assessments</a></li>
+            <li><a href="manageTests.jsp">Manage Tests</a></li>
+            <li><a href="users.jsp">Manage Users</a></li>
+            <li><a href="reports.jsp">Performance Reports</a></li>
+            <li><a href="questions.jsp">Question Bank</a></li>
+        </ul>
+    </div>
 
-        <div class="main-content">
-            <header>
-                <h1 class="page-title">Manage Tests</h1>
-                <div class="user-info">
-                    <span>Admin User</span>
-                    <div class="user-avatar">AU</div>
-                </div>
-            </header>
+    <div class="main-content">
+        <header>
+            <h1 class="page-title">Manage Tests</h1>
+            <div class="user-info">
+                <span>Admin User</span>
+                <div class="user-avatar">AU</div>
+            </div>
+        </header>
 
         <% if (error != null) { %>
             <p style="color: red;"><%= error %></p>
         <% } %>
 
-   
-<div class="card">
-    <h3>Create Test</h3>
+        <% if (successMessage != null) { %>
+            <p style="color: green;"><%= successMessage %></p>
+        <% } %>
+
+     <div class="card">
+    <h3><%= (testToEdit != null) ? "Edit Test" : "Create Test" %></h3>
     <form method="post">
-        <div class="form-group">
-            <label for="testTitle">Test Title</label>
-            <input type="text" name="title" id="testTitle" class="form-control" required>
-        </div>
+        <% if (testToEdit != null) { %>
+            <input type="hidden" name="test_id" value="<%= testToEdit.getId() %>">
+        <% } %>
 
         <div class="form-group">
-            <label for="recruiterId">Recruiter ID</label>
-            <input type="number" name="recruiter_id" id="recruiterId" class="form-control" required>
+            <label for="testTitle">Test Title</label>
+            <input type="text" name="title" id="testTitle" class="form-control" value="<%= (testToEdit != null) ? testToEdit.getTitle() : "" %>" required>
         </div>
 
         <div class="form-group">
@@ -366,56 +424,68 @@
             <select name="assessment_id" id="assessmentId" class="form-control" required>
                 <option value="">-- Select Assessment --</option>
                 <% for (Assessment a : assessments) { %>
-                    <option value="<%= a.getId() %>"><%= a.getName() %></option>
+                    <option value="<%= a.getId() %>" <%= (testToEdit != null && testToEdit.getAssessmentId() == a.getId()) ? "selected" : "" %>><%= a.getName() %></option>
                 <% } %>
             </select>
         </div>
 
         <div class="form-group">
             <label for="difficulty">Target Difficulty</label>
-            <input type="number" name="target_difficulty" id="difficulty" class="form-control" required>
+            <input type="number" name="target_difficulty" id="difficulty" class="form-control" value="<%= (testToEdit != null) ? testToEdit.getTargetDifficulty() : "1" %>" required min="1" max="10">
         </div>
 
-        <button class="btn btn-primary" type="submit">Create Test</button>
+        <button class="btn btn-primary" type="submit">
+            <%= (testToEdit != null) ? "Update Test" : "Create Test" %>
+        </button>
     </form>
 </div>
 
+        <div class="divider"></div>
 
+        <!-- Table displaying all tests -->
+        <h3>All Tests</h3>
+       <table>
+    <thead>
+        <tr>
+            <th>Test Title</th>
+            <th>Assessment</th>
+            <th>Target Difficulty</th>
+            <th>Created Date</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <% for (Test test : tests) { %>
+            <tr>
+                <td><%= test.getTitle() %></td>
+                <td><%= test.getAssessmentName() %></td>
+                <td><%= test.getTargetDifficulty() > 0 ? test.getTargetDifficulty() : "Not set" %></td>
+                <td><%= test.getCreatedDate() != null ? test.getCreatedDate() : "Not set" %></td>
+                <td>
+                    <a href="manageTests.jsp?id=<%= test.getId() %>" class="btn btn-primary">Edit</a>
+                    <a href="manageTests.jsp?delete_id=<%= test.getId() %>" class="btn btn-danger">Delete</a>
+                </td>
+            </tr>
+        <% } %>
+    </tbody>
+</table>
 
-            <!-- List of Tests -->
-            <div class="divider"></div>
-            <div class="card">
-                <h3>All Tests</h3>
-  
+    </div> <!-- End of main-content -->
+</div> <!-- End of container -->
 
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Test Title</th>
-                            <th>Description</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                <% for (Test t : tests) { %>
-                    <tr>
-                        <td><%= t.getTitle() %></td>
-                            <td><%= t.getAssessmentName() %></td>
-                        <td>
-                            <a href="editTest.jsp?id=<%= t.getId() %>" class="btn btn-primary">Edit</a>
-                            <a href="deleteTest.jsp?id=<%= t.getId() %>" class="btn btn-danger">Delete</a>
-                        </td>
-                    </tr>
-                <% } %>
-                </tbody>
-                </table>
-            </div>
-
-            <div class="footer">
-                <p>Support | Documentation</p>
-                <p>© 2025 Quizify System</p>
-            </div>
+        <div class="footer">
+            <p>Support | Documentation</p>
+            <p>© 2025 Quizify System</p>
         </div>
-    </div>
-    </body>
+
+<script>
+    document.querySelector("form").addEventListener("submit", function(event) {
+        const createdDateInput = document.querySelector("#createdDate");
+        if (!createdDateInput.value) {
+            createdDateInput.value = new Date().toISOString().split('T')[0];  // Sets the current date if empty
+        }
+    });
+</script>
+</body>
+
     </html>

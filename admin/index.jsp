@@ -382,8 +382,8 @@
                             <th>title</th>
                             <th>assessment_id</th>
 
-                            <th>target_difficulty</th>
                             <th>created at</th>
+                            <th>target_difficulty</th>
                         </tr>
                     </thead>
                                  <tbody>
