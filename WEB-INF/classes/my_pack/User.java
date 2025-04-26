@@ -6,6 +6,7 @@ public class User {
     private String password; // Consider securing this with hashing
     private String role;
 
+public User() {}
     public User(int var1, String var2, String var3, String var4, String var5) {
         this.id = var1;
         this.name = var2;

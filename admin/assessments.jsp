@@ -34,7 +34,6 @@
                     error = "Failed to update assessment";
                 }
             } catch (NumberFormatException e) {
-                error = "Invalid assessment ID";
             }
         }
         else if ("delete".equals(action)) {
