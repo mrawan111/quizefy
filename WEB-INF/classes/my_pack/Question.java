@@ -10,6 +10,8 @@ public class Question {
     private float weight;
         private String testTitle;
             private int testId;
+               private String optionsText;  // Stores options as JSON string
+    private char correctOption;
 
 
     // Constructors
@@ -57,4 +59,10 @@ public class Question {
     public void setTestTitle(String testTitle) {
         this.testTitle = testTitle;
     }
+    
+    public String getOptionsText() { return optionsText; }
+    public void setOptionsText(String optionsText) { this.optionsText = optionsText; }
+    
+    public char getCorrectOption() { return correctOption; }
+    public void setCorrectOption(char correctOption) { this.correctOption = correctOption; }
 }

@@ -1,10 +1,8 @@
 <%@ page import="java.sql.*" %>
-<%@ page import="java.util.List" %>
-<%@ page import="java.util.ArrayList" %>
+<%@ page import="java.util.*" %>
 <%@ page import="my_pack.Question" %>
 <%@ page import="my_pack.Test" %>
 <%@ page import="my_pack.DBConnection" %>
-<%@ page import="java.util.Arrays" %>
 
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%
@@ -15,12 +13,11 @@
     List<Test> tests = new ArrayList<>();
     String error = null;
     String successMessage = null;
-    String activeTab = request.getParameter("tab") != null ? request.getParameter("tab") : "all";
     String searchQuery = request.getParameter("search");
     String difficultyFilter = request.getParameter("difficulty");
     String testId = request.getParameter("test_id");
 
-    // Load all tests for the test selector
+    // Load all tests
     try {
         conn = DBConnection.getConnection();
         stmt = conn.prepareStatement("SELECT id, title FROM tests");
@@ -36,115 +33,94 @@
     } finally {
         if (rs != null) rs.close();
         if (stmt != null) stmt.close();
-        if (conn != null) conn.close();
     }
 
     // Handle form submission
     if ("POST".equalsIgnoreCase(request.getMethod())) {
         String text = request.getParameter("text");
-        String questionType = request.getParameter("question_type");
+        String[] options = request.getParameterValues("options");
+        String correctOption = request.getParameter("correct_option");
         String difficulty = request.getParameter("difficulty");
-        String correctAnswer = request.getParameter("correct_answer");
         String weight = request.getParameter("weight");
         String questionId = request.getParameter("question_id");
         String testIdParam = request.getParameter("test_id");
-        
-        // For MCQ questions, format the options
-        if ("MCQ".equals(questionType)) {
-            String[] options = request.getParameterValues("options");
-            String[] optionTexts = request.getParameterValues("option_text");
-            StringBuilder optionsBuilder = new StringBuilder();
-            
-            for (int i = 0; i < options.length; i++) {
-                optionsBuilder.append(options[i]).append(") ").append(optionTexts[i]);
-                if (i < options.length - 1) {
-                    optionsBuilder.append("|");
-                }
-            }
-            correctAnswer = optionsBuilder.toString();
-        }
 
         try {
-            conn = DBConnection.getConnection();
-            String query;
+            // Convert options to pipe-separated string
+            String optionsText = String.join("|", options);
             
             if (questionId != null && !questionId.isEmpty()) {
-                query = "UPDATE questions SET text=?, question_type=?, difficulty=?, correct_answer=?, weight=?, test_id=? WHERE id=?";
+                stmt = conn.prepareStatement(
+                    "UPDATE questions SET text=?, question_type=?, difficulty=?, weight=?, " +
+                    "test_id=?, options_text=?, correct_option=? WHERE id=?"
+                );
+                stmt.setInt(8, Integer.parseInt(questionId));
             } else {
-                query = "INSERT INTO questions (text, question_type, difficulty, correct_answer, weight, test_id) VALUES (?, ?, ?, ?, ?, ?)";
+                stmt = conn.prepareStatement(
+                    "INSERT INTO questions (text, question_type, difficulty, weight, " +
+                    "test_id, options_text, correct_option) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                );
             }
             
-            stmt = conn.prepareStatement(query);
             stmt.setString(1, text);
-            stmt.setString(2, questionType);
+            stmt.setString(2, "MCQ");
             stmt.setInt(3, Integer.parseInt(difficulty));
-            stmt.setString(4, correctAnswer);
-            stmt.setFloat(5, Float.parseFloat(weight));
-            stmt.setInt(6, Integer.parseInt(testIdParam));
-            
-            if (questionId != null && !questionId.isEmpty()) {
-                stmt.setInt(7, Integer.parseInt(questionId));
-            }
+            stmt.setFloat(4, Float.parseFloat(weight));
+            stmt.setInt(5, Integer.parseInt(testIdParam));
+            stmt.setString(6, optionsText);
+            System.out.println("Correct option value: " + correctOption); // Add this line
+
+            stmt.setString(7, correctOption);
             
             int rows = stmt.executeUpdate();
             if (rows > 0) {
-                successMessage = (questionId != null && !questionId.isEmpty()) ? 
+                successMessage = questionId != null ? 
                     "Question updated successfully!" : "Question created successfully!";
-                // Redirect to show questions for the selected test
                 response.sendRedirect("questions.jsp?test_id=" + testIdParam);
                 return;
             }
         } catch (Exception e) {
-            error = "Error processing question: " + e.getMessage();
+            error = "Error saving question: " + e.getMessage();
         } finally {
             if (stmt != null) stmt.close();
-            if (conn != null) conn.close();
         }
     }
 
-    // Delete question functionality
+    // Delete question
     String deleteId = request.getParameter("delete_id");
     if (deleteId != null) {
         try {
-            conn = DBConnection.getConnection();
             stmt = conn.prepareStatement("DELETE FROM questions WHERE id = ?");
             stmt.setInt(1, Integer.parseInt(deleteId));
-            int rows = stmt.executeUpdate();
-            if (rows > 0) {
-                successMessage = "Question deleted successfully!";
-            }
+            stmt.executeUpdate();
+            successMessage = "Question deleted successfully!";
         } catch (Exception e) {
             error = "Error deleting question: " + e.getMessage();
         } finally {
             if (stmt != null) stmt.close();
-            if (conn != null) conn.close();
         }
     }
 
-    // Load questions with filters
+    // Load questions
     try {
-        conn = DBConnection.getConnection();
-        StringBuilder queryBuilder = new StringBuilder("SELECT q.*, t.title as test_title FROM questions q LEFT JOIN tests t ON q.test_id = t.id WHERE 1=1");
+        StringBuilder query = new StringBuilder(
+            "SELECT q.*, t.title as test_title FROM questions q LEFT JOIN tests t ON q.test_id = t.id " +
+            "WHERE q.question_type = 'MCQ'"
+        );
         
-        if (!"all".equals(activeTab)) {
-            queryBuilder.append(" AND q.question_type = ?");
-        }
         if (searchQuery != null && !searchQuery.isEmpty()) {
-            queryBuilder.append(" AND q.text LIKE ?");
+            query.append(" AND q.text LIKE ?");
         }
         if (difficultyFilter != null && !"all".equals(difficultyFilter)) {
-            queryBuilder.append(" AND q.difficulty = ?");
+            query.append(" AND q.difficulty = ?");
         }
         if (testId != null && !testId.isEmpty()) {
-            queryBuilder.append(" AND q.test_id = ?");
+            query.append(" AND q.test_id = ?");
         }
         
-        stmt = conn.prepareStatement(queryBuilder.toString());
-        
+        stmt = conn.prepareStatement(query.toString());
         int paramIndex = 1;
-        if (!"all".equals(activeTab)) {
-            stmt.setString(paramIndex++, activeTab);
-        }
+        
         if (searchQuery != null && !searchQuery.isEmpty()) {
             stmt.setString(paramIndex++, "%" + searchQuery + "%");
         }
@@ -162,17 +138,11 @@
             question.setText(rs.getString("text"));
             question.setQuestionType(rs.getString("question_type"));
             question.setDifficulty(rs.getInt("difficulty"));
-            question.setCorrectAnswer(rs.getString("correct_answer"));
             question.setWeight(rs.getFloat("weight"));
-           try {
-    java.lang.reflect.Method setTestId = question.getClass().getMethod("setTestId", int.class);
-    setTestId.invoke(question, rs.getInt("test_id"));
-    
-    java.lang.reflect.Method setTestTitle = question.getClass().getMethod("setTestTitle", String.class);
-    setTestTitle.invoke(question, rs.getString("test_title"));
-} catch (Exception e) {
-    // Methods don't exist, skip them
-}
+            question.setOptionsText(rs.getString("options_text"));
+            question.setCorrectOption(rs.getString("correct_option").charAt(0));
+            question.setTestId(rs.getInt("test_id"));
+            question.setTestTitle(rs.getString("test_title"));
             questions.add(question);
         }
     } catch (Exception e) {
@@ -198,14 +168,11 @@
                 questionToEdit.setText(rs.getString("text"));
                 questionToEdit.setQuestionType(rs.getString("question_type"));
                 questionToEdit.setDifficulty(rs.getInt("difficulty"));
-                questionToEdit.setCorrectAnswer(rs.getString("correct_answer"));
                 questionToEdit.setWeight(rs.getFloat("weight"));
-try {
-    java.lang.reflect.Method setTestId = questionToEdit.getClass().getMethod("setTestId", int.class);
-    setTestId.invoke(questionToEdit, rs.getInt("test_id"));
-} catch (Exception e) {
-    // Method doesn't exist, skip it
-}            }
+                questionToEdit.setOptionsText(rs.getString("options_text"));
+                questionToEdit.setCorrectOption(rs.getString("correct_option").charAt(0));
+                questionToEdit.setTestId(rs.getInt("test_id"));
+            }
         } catch (Exception e) {
             error = "Error loading question for editing: " + e.getMessage();
         } finally {
@@ -219,9 +186,11 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Assessment System - Question Bank</title>
+    <title>Question Bank</title>
     <style>
-:root {
+
+        /* All CSS styles remain exactly the same as previous version */
+                :root {
             --primary-color: #3498db;
             --secondary-color: #2980b9;
             --light-gray: #f5f5f5;
@@ -250,6 +219,100 @@ try {
             display: flex;
             min-height: 100vh;
         }
+        /* Styles for the options container */
+#optionsContainer {
+    margin-top: 20px;
+}
+
+/* Each option's row */
+.option-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    gap: 15px;
+}
+
+/* Input field for the option text */
+.option-row input[type="text"] {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid var(--medium-gray);
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+/* Label for the option text */
+.option-row label {
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: var(--dark-gray);
+}
+
+/* Radio button for the correct option */
+.option-row input[type="radio"] {
+    margin-right: 10px;
+}
+
+/* Correct option indicator text */
+.correct-option-indicator {
+    color: var(--success-color);
+    font-weight: bold;
+}
+
+/* Remove button for the option */
+.option-row button {
+    background-color: var(--danger-color);
+    color: var(--white);
+    border: none;
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.option-row button:hover {
+    background-color: #c0392b;
+}
+/* Style for the radio buttons (correct option) */
+.option-row input[type="radio"] {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--primary-color);
+    background-color: var(--white);
+    appearance: none;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+/* Hover effect for the radio button */
+.option-row input[type="radio"]:hover {
+    border-color: var(--secondary-color);
+}
+
+/* Checked state (selected radio button) */
+.option-row input[type="radio"]:checked {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+/* When the radio button is checked, the indicator color changes */
+.option-row input[type="radio"]:checked::before {
+    content: "";
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--white);
+    margin: 3px;
+}
+
+/* Optional: If you want to add a hover effect or style when focus */
+.option-row input[type="radio"]:focus {
+    outline: none;
+    box-shadow: 0 0 5px var(--primary-color);
+}
+
         
         .sidebar {
             width: 250px;
@@ -336,34 +399,6 @@ try {
             margin-bottom: 20px;
         }
         
-        .tab-container {
-            margin-bottom: 20px;
-        }
-        
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid var(--medium-gray);
-        }
-        
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border-bottom: 3px solid transparent;
-            color: var(--dark-gray);
-            font-weight: 500;
-            transition: all 0.3s ease;
-        }
-        
-        .tab:hover {
-            color: var(--primary-color);
-        }
-        
-        .tab.active {
-            border-bottom-color: var(--primary-color);
-            color: var(--primary-color);
-            font-weight: 600;
-        }
-        
         .question-filters {
             display: flex;
             gap: 15px;
@@ -399,7 +434,6 @@ try {
             font-size: 16px;
             font-weight: 500;
             transition: all 0.3s ease;
-            margin-bottom: 20px;
         }
         
         .btn-primary {
@@ -414,15 +448,6 @@ try {
         .btn-sm {
             padding: 5px 10px;
             font-size: 14px;
-        }
-        
-        .btn-warning {
-            background-color: var(--warning-color);
-            color: var(--white);
-        }
-        
-        .btn-warning:hover {
-            background-color: #e67e22;
         }
         
         .btn-danger {
@@ -445,12 +470,6 @@ try {
             margin-bottom: 20px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             border-left: 4px solid var(--primary-color);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        
-        .question-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
         }
         
         .question-header {
@@ -491,7 +510,6 @@ try {
             padding: 8px 12px;
             background-color: var(--light-gray);
             border-radius: 4px;
-            position: relative;
         }
         
         .question-option.correct {
@@ -508,11 +526,6 @@ try {
             flex-wrap: wrap;
         }
         
-        .question-meta span {
-            display: flex;
-            align-items: center;
-        }
-        
         .question-actions {
             display: flex;
             gap: 10px;
@@ -520,20 +533,38 @@ try {
             justify-content: flex-end;
         }
         
-        .footer {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid var(--medium-gray);
-            text-align: center;
-            color: var(--dark-gray);
-            font-size: 14px;
+        .form-group {
+            margin-bottom: 15px;
         }
         
-        .footer p {
-            margin-bottom: 5px;
+        .option-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
         }
         
-        /* Responsive adjustments */
+        .option-row input[type="text"] {
+            flex: 1;
+        }
+        
+        .correct-option-indicator {
+            color: var(--success-color);
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .test-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+        
+        .test-selector select {
+            flex: 1;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 flex-direction: column;
@@ -541,130 +572,42 @@ try {
             
             .sidebar {
                 width: 100%;
-                padding: 15px;
-            }
-            
-            .main-content {
-                padding: 20px;
             }
             
             .question-filters {
                 flex-direction: column;
-                gap: 10px;
-            }
-            
-            .filter-group {
-                width: 100%;
-            }
-            
-            .question-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 10px;
-            }
-            
-            .question-meta {
-                flex-direction: column;
-                gap: 8px;
             }
         }
-        
-        /* Additional styles for the form */
-        .form-group {
-            margin-bottom: 15px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-        }
-        
-        .form-control {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid var(--medium-gray);
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        
-        textarea.form-control {
-            min-height: 100px;
-        }
-        
-        .form-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }        
-        /* New styles for test selector */
-        .test-selector {
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .test-selector select {
-            flex: 1;
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid var(--medium-gray);
-        }
-        
-        .test-selector button {
-            padding: 8px 15px;
-        }
-        
-        /* MCQ options styles */
-        .mcq-options-container {
-            display: none;
-            margin-top: 15px;
-        }
+        /* ... rest of the CSS remains unchanged ... */
         
         .option-row {
             display: flex;
             align-items: center;
             margin-bottom: 10px;
+            gap: 10px;
         }
         
-        .option-letter {
-            width: 30px;
-            font-weight: bold;
-        }
-        
-        .option-input {
+        .option-row input[type="text"] {
             flex: 1;
         }
         
-        .add-option-btn {
-            margin-top: 10px;
-        }
-        
-        .remove-option-btn {
+        .correct-option-indicator {
+            color: var(--success-color);
+            font-weight: bold;
             margin-left: 10px;
-            color: var(--danger-color);
-            cursor: pointer;
-        }
-        
-        .test-info {
-            font-size: 0.9em;
-            color: var(--secondary-color);
-            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Sidebar Navigation -->
         <div class="sidebar">
             <h2>Quizefy System</h2>
             <ul class="sidebar-menu">
                 <li><a href="index.jsp">Dashboard</a></li>
-                <li><a href="assessments.jsp">Manage Assessments</a></li>
-                <li><a href="manageTests.jsp">Manage Tests</a></li>
-                <li><a href="users.jsp">Manage Users</a></li>
-                <li><a href="reports.jsp">Performance Reports</a></li>
+                <li><a href="assessments.jsp">Assessments</a></li>
+                <li><a href="manageTests.jsp">Tests</a></li>
+                <li><a href="users.jsp">Users</a></li>
+                <li><a href="reports.jsp">Reports</a></li>
                 <li><a href="questions.jsp" class="active">Question Bank</a></li>
             </ul>
         </div>
@@ -673,38 +616,38 @@ try {
             <header>
                 <h1 class="page-title">Question Bank</h1>
                 <div class="user-info">
-                    <span>Admin User</span>
-                    <div class="user-avatar">AU</div>
+                    <span>Admin</span>
+                    <div class="user-avatar">A</div>
                 </div>
             </header>
 
             <% if (error != null) { %>
-                <div style="color: var(--danger-color); margin-bottom: 20px; padding: 10px; background-color: #f8d7da; border-radius: 4px;">
+                <div class="card" style="background-color: #f8d7da; color: var(--danger-color);">
                     <%= error %>
                 </div>
             <% } %>
 
             <% if (successMessage != null) { %>
-                <div style="color: var(--success-color); margin-bottom: 20px; padding: 10px; background-color: #d4edda; border-radius: 4px;">
+                <div class="card" style="background-color: #d4edda; color: var(--success-color);">
                     <%= successMessage %>
                 </div>
             <% } %>
 
-            <!-- Test Selector -->
             <div class="test-selector">
-                <select id="testSelector">
+                <select id="testSelector" class="form-control">
                     <option value="">-- Select a Test --</option>
                     <% for (Test test : tests) { %>
-                        <option value="<%= test.getId() %>" <%= testId != null && testId.equals(String.valueOf(test.getId())) ? "selected" : "" %>>
+                        <option value="<%= test.getId() %>" 
+                            <%= testId != null && testId.equals(String.valueOf(test.getId())) ? "selected" : "" %>>
                             <%= test.getTitle() %>
                         </option>
                     <% } %>
                 </select>
-                <button class="btn btn-primary" onclick="createQuestionForTest()">Create Question for Selected Test</button>
+                <button class="btn btn-primary" onclick="showQuestionForm()">Create Question</button>
             </div>
 
             <% if (testId != null) { %>
-                <div class="test-info">
+                <div class="card" style="margin-bottom: 20px;">
                     Currently viewing questions for: 
                     <% for (Test test : tests) { %>
                         <% if (test.getId() == Integer.parseInt(testId)) { %>
@@ -715,17 +658,8 @@ try {
             <% } %>
 
             <div class="card">
-                <div class="tab-container">
-                    <div class="tabs">
-                        <a href="questions.jsp?tab=all<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "all".equals(activeTab) ? "active" : "" %>">All Questions</a>
-                        <a href="questions.jsp?tab=MCQ<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "MCQ".equals(activeTab) ? "active" : "" %>">Multiple Choice</a>
-                        <a href="questions.jsp?tab=Text<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "Text".equals(activeTab) ? "active" : "" %>">Text Answer</a>
-                        <a href="questions.jsp?tab=Coding<%= testId != null ? "&test_id=" + testId : "" %>" class="tab <%= "Coding".equals(activeTab) ? "active" : "" %>">Coding</a>
-                    </div>
-                </div>
-
                 <form method="get" action="questions.jsp" class="question-filters">
-                    <input type="hidden" name="tab" value="<%= activeTab %>">
+                    <input type="hidden" name="tab" value="MCQ">
                     <% if (testId != null) { %>
                         <input type="hidden" name="test_id" value="<%= testId %>">
                     <% } %>
@@ -743,261 +677,205 @@ try {
                         <input type="text" id="searchFilter" name="search" class="form-control" 
                                placeholder="Search questions..." value="<%= searchQuery != null ? searchQuery : "" %>">
                     </div>
-                    <button type="submit" style="display: none;"></button>
                 </form>
+            </div>
 
-                <button class="btn btn-primary" onclick="document.getElementById('questionForm').style.display='block'">
-                    + Add New Question
-                </button>
+            <div class="card" id="questionForm" style="display: <%= questionToEdit != null ? "block" : "none" %>;">
+                <h3><%= questionToEdit != null ? "Edit Question" : "Create New Question" %></h3>
+                <form method="post" onsubmit="return validateForm()">
+                    <% if (questionToEdit != null) { %>
+                        <input type="hidden" name="question_id" value="<%= questionToEdit.getId() %>">
+                    <% } %>
+                    <input type="hidden" name="test_id" id="form_test_id" value="<%= testId != null ? testId : "" %>">
+                    
+                    <div class="form-group">
+                        <label>Question Text</label>
+                        <textarea name="text" class="form-control" required><%= questionToEdit != null ? questionToEdit.getText() : "" %></textarea>
+                    </div>
 
-                <!-- Question Form -->
-                <div class="card" id="questionForm" style="display: <%= questionToEdit != null ? "block" : "none" %>; margin-bottom: 20px;">
-                    <h3><%= questionToEdit != null ? "Edit Question" : "Create New Question" %></h3>
-                    <form method="post" action="questions.jsp?tab=<%= activeTab %><%= testId != null ? "&test_id=" + testId : "" %>">
-                        <% if (questionToEdit != null) { %>
-                            <input type="hidden" name="question_id" value="<%= questionToEdit.getId() %>">
+                    <div class="form-group">
+                        <label>Options</label>
+                       <div id="optionsContainer">
+    <!-- Option A -->
+    <div class="option-row">
+        <input type="text" name="options" placeholder="Option A" required>
+    </div>
+    <!-- Option B -->
+    <div class="option-row">
+        <input type="text" name="options" placeholder="Option B" required>
+    </div>
+    <!-- Option C (Optional) -->
+    <div class="option-row">
+        <input type="text" name="options" placeholder="Option C">
+    </div>
+    <!-- Option D (Optional) -->
+    <div class="option-row">
+        <input type="text" name="options" placeholder="Option D">
+    </div>
+</div>
+
+<!-- Dropdown to select the correct option -->
+<label for="correct_option">Select Correct Answer</label>
+<select id="correct_option" name="correct_option" required>
+    <option value="" disabled selected>Select Correct Answer</option>
+    <option value="A">Option A</option>
+    <option value="B">Option B</option>
+    <option value="C">Option C</option>
+    <option value="D">Option D</option>
+</select>
+
+                        <button type="button" class="btn btn-primary" onclick="addOption()">+ Add Option</button>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Difficulty (1-10)</label>
+                        <input type="number" name="difficulty" class="form-control" min="1" max="10" 
+                               value="<%= questionToEdit != null ? questionToEdit.getDifficulty() : "5" %>" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Weight</label>
+                        <input type="number" step="0.1" name="weight" class="form-control" 
+                               value="<%= questionToEdit != null ? questionToEdit.getWeight() : "1.0" %>" required>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Save Question</button>
+                        <button type="button" class="btn" onclick="hideQuestionForm()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="question-list">
+                <% for (Question q : questions) { 
+                    String[] options = q.getOptionsText().split("\\|");
+                %>
+                    <div class="question-card">
+                        <div class="question-header">
+                            <h4><%= q.getText() %></h4>
+                            <span class="badge">
+                                Difficulty: <%= q.getDifficulty() %>
+                            </span>
+                        </div>
+                        
+                        <% if (q.getTestTitle() != null) { %>
+                            <div class="test-info">Test: <%= q.getTestTitle() %></div>
                         <% } %>
                         
-                        <input type="hidden" name="test_id" id="form_test_id" value="<%= testId != null ? testId : "" %>">
-                        
-                        <div class="form-group">
-                            <label for="text">Question Text</label>
-                            <textarea name="text" id="text" class="form-control" required><%= questionToEdit != null ? questionToEdit.getText() : "" %></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="question_type">Question Type</label>
-                            <select name="question_type" id="question_type" class="form-control" required onchange="toggleMCQOptions()">
-                                <option value="">-- Select Type --</option>
-                                <option value="MCQ" <%= questionToEdit != null && "MCQ".equals(questionToEdit.getQuestionType()) ? "selected" : "" %>>Multiple Choice</option>
-                                <option value="Text" <%= questionToEdit != null && "Text".equals(questionToEdit.getQuestionType()) ? "selected" : "" %>>Text Answer</option>
-                                <option value="Coding" <%= questionToEdit != null && "Coding".equals(questionToEdit.getQuestionType()) ? "selected" : "" %>>Coding</option>
-                            </select>
-                        </div>
-
-                        <!-- MCQ Options Container -->
-                        <div id="mcqOptionsContainer" class="mcq-options-container">
-                            <h4>Multiple Choice Options</h4>
-                            <div id="optionsContainer">
-                                <!-- Options will be added here dynamically -->
-                            </div>
-                            <button type="button" class="btn btn-primary add-option-btn" onclick="addOption()">+ Add Option</button>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="difficulty">Difficulty (1-10)</label>
-                            <input type="number" name="difficulty" id="difficulty" class="form-control" 
-                                   min="1" max="10" value="<%= questionToEdit != null ? questionToEdit.getDifficulty() : "5" %>" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="weight">Weight</label>
-                            <input type="number" step="0.1" name="weight" id="weight" class="form-control" 
-                                   value="<%= questionToEdit != null ? questionToEdit.getWeight() : "1.0" %>" required>
-                        </div>
-
-                        <!-- Hidden field to store formatted correct answer -->
-                        <input type="hidden" name="correct_answer" id="correct_answer" value="">
-
-                        <div class="form-actions">
-                            <button class="btn btn-primary" type="submit">
-                                <%= questionToEdit != null ? "Update Question" : "Create Question" %>
-                            </button>
-                            <button class="btn" type="button" onclick="document.getElementById('questionForm').style.display='none'">
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                </div>
-
-                <!-- Question List -->
-                <div class="question-list">
-                    <% for (Question q : questions) { 
-                        String difficultyClass = "";
-                        if (q.getDifficulty() <= 3) {
-                            difficultyClass = "Easy";
-                        } else if (q.getDifficulty() <= 7) {
-                            difficultyClass = "Medium";
-                        } else {
-                            difficultyClass = "Hard";
-                        }
-                    %>
-                        <div class="question-card">
-                            <div class="question-header">
-                                <h4><%= q.getText().length() > 50 ? q.getText().substring(0, 50) + "..." : q.getText() %></h4>
-                                <span class="badge">Difficulty: <%= difficultyClass %></span>
-                            </div>
-                            <div class="question-text">
-                                <%= q.getText() %>
-                                <% 
-try {
-    java.lang.reflect.Method getTestTitle = q.getClass().getMethod("getTestTitle");
-    String testTitle = (String)getTestTitle.invoke(q);
-    if (testTitle != null) { %>
-        <div class="test-info">Test: <%= testTitle %></div>
-    <% }
-} catch (Exception e) {
-    // Method doesn't exist, skip it
-}
-%>
-                            </div>
-                            <% if ("MCQ".equals(q.getQuestionType())) { 
-                                String[] options = q.getCorrectAnswer().split("\\|");
+                        <div class="question-options">
+                            <% for (int i = 0; i < options.length; i++) { 
+                                char letter = (char)('A' + i);
+                                boolean isCorrect = (letter == q.getCorrectOption());
                             %>
-                                <div class="question-options">
-                                    <% for (String option : options) { 
-                                        String[] parts = option.split("\\) ");
-                                        String letter = parts[0];
-                                        String text = parts.length > 1 ? parts[1] : "";
-                                    %>
-                                        <div class="question-option">
-                                            <%= letter %>) <%= text %>
-                                        </div>
+                                <div class="question-option <%= isCorrect ? "correct" : "" %>">
+                                    <%= letter %>) <%= options[i] %>
+                                    <% if (isCorrect) { %>
+                                        <span class="correct-option-indicator">✓ Correct</span>
                                     <% } %>
                                 </div>
                             <% } %>
-                            <div class="question-meta">
-                                <span>Type: <%= q.getQuestionType() %></span>
-                                <span>Weight: <%= q.getWeight() %></span>
-                            </div>
-                            <div class="question-actions">
-                                <a href="questions.jsp?edit_id=<%= q.getId() %>&tab=<%= activeTab %><%= testId != null ? "&test_id=" + testId : "" %>" class="btn btn-sm btn-primary">Edit</a>
-                                <a href="questions.jsp?delete_id=<%= q.getId() %>&tab=<%= activeTab %><%= testId != null ? "&test_id=" + testId : "" %>" 
-                                   class="btn btn-sm btn-danger" 
-                                   onclick="return confirm('Are you sure you want to delete this question?')">Delete</a>
-                            </div>
                         </div>
-                    <% } %>
-                    
-                    <% if (questions.isEmpty()) { %>
-                        <div style="text-align: center; padding: 20px; color: var(--dark-gray);">
-                            No questions found matching your criteria.
+                        
+                        <div class="question-meta">
+                            <span>Weight: <%= q.getWeight() %></span>
                         </div>
-                    <% } %>
-                </div>
-            </div>
-
-            <div class="footer">
-                <p>Support | Documentation</p>
-                <p>© 2025 Assessment System</p>
+                        
+                        <div class="question-actions">
+                            <a href="questions.jsp?edit_id=<%= q.getId() %><%= testId != null ? "&test_id=" + testId : "" %>" 
+                               class="btn btn-sm btn-primary">Edit</a>
+                            <a href="questions.jsp?delete_id=<%= q.getId() %><%= testId != null ? "&test_id=" + testId : "" %>" 
+                               class="btn btn-sm btn-danger" 
+                               onclick="return confirm('Are you sure you want to delete this question?')">Delete</a>
+                        </div>
+                    </div>
+                <% } %>
+                
+                <% if (questions.isEmpty()) { %>
+                    <div class="card" style="text-align: center;">
+                        No questions found matching your criteria.
+                    </div>
+                <% } %>
             </div>
         </div>
     </div>
 
     <script>
-        // Show/hide form when clicking Add New Question
-        document.querySelector('.btn-primary').addEventListener('click', function() {
-            document.getElementById('questionForm').style.display = 'block';
+   function addOption(letter, text, isCorrect) {
+    const container = document.getElementById('optionsContainer');
+    const optionCount = container.children.length;
+    const optionLetter = letter || String.fromCharCode(65 + optionCount);
+    const optionText = text || '';
+    
+    const optionRow = document.createElement('div');
+    optionRow.className = 'option-row';
+    optionRow.innerHTML = `
+        <input type="text" name="options" value="${optionText}" placeholder="Option ${optionLetter}" required>
+        <input type="radio" name="correct_option" value="${optionLetter}" ${isCorrect ? 'checked' : ''} required>
+        <label>Correct Answer</label>
+        <button type="button" onclick="removeOption(this)" class="btn btn-sm btn-danger">×</button>
+    `;
+    
+    container.appendChild(optionRow);
+}
+
+function removeOption(button) {
+    const container = document.getElementById('optionsContainer');
+    if (container.children.length > 2) {
+        button.parentElement.remove();
+        // Renumber remaining options
+        const options = container.querySelectorAll('.option-row');
+        options.forEach((row, index) => {
+            const letter = String.fromCharCode(65 + index);
+            row.querySelector('input[type="text"]').placeholder = `Option ${letter}`;
+            row.querySelector('input[type="radio"]').value = letter;
         });
-        
-        // Auto-submit search when typing
-        document.getElementById('searchFilter').addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') {
-                this.form.submit();
-            }
-        });
-        
-        // Create question for selected test
-        function createQuestionForTest() {
-            const testSelector = document.getElementById('testSelector');
-            const selectedTestId = testSelector.value;
-            
-            if (selectedTestId) {
-                // Set the test ID in the form
-                document.getElementById('form_test_id').value = selectedTestId;
-                
-                // Show the question form
-                document.getElementById('questionForm').style.display = 'block';
-                
-                // Reset form if not editing
-                <% if (questionToEdit == null) { %>
-                    document.querySelector('#questionForm form').reset();
-                    document.getElementById('optionsContainer').innerHTML = '';
-                <% } %>
-                
-                // Scroll to the form
-                document.getElementById('questionForm').scrollIntoView({ behavior: 'smooth' });
-            } else {
-                alert('Please select a test first');
-            }
+    } else {
+        alert("Questions must have at least 2 options");
+    }
+}
+function validateForm() {
+    const options = document.querySelectorAll('input[name="options"]');
+    const correctOption = document.getElementById('correct_option').value;
+    
+    // Validate at least 2 options
+    if (options.length < 2) {
+        alert("Please provide at least 2 options");
+        return false;
+    }
+
+    // Validate all options have text
+    for (let i = 0; i < options.length; i++) {
+        if (!options[i].value.trim()) {
+            alert("Please fill in all option texts");
+            options[i].focus();
+            return false;
         }
-        
-        // Toggle MCQ options based on question type
-        function toggleMCQOptions() {
-            const questionType = document.getElementById('question_type').value;
-            const mcqContainer = document.getElementById('mcqOptionsContainer');
-            
-            if (questionType === 'MCQ') {
-                mcqContainer.style.display = 'block';
-                // Initialize with 4 options if empty
-                if (document.getElementById('optionsContainer').children.length === 0) {
-                    for (let i = 0; i < 4; i++) {
-                        addOption(String.fromCharCode(65 + i));
-                    }
-                }
-            } else {
-                mcqContainer.style.display = 'none';
-            }
-        }
-        
-        // Add new option
-        function addOption(letter = null) {
-            const container = document.getElementById('optionsContainer');
-            const optionCount = container.children.length;
-            const optionLetter = letter || String.fromCharCode(65 + optionCount);
-            
-            const optionRow = document.createElement('div');
-            optionRow.className = 'option-row';
-            optionRow.innerHTML = `
-                <div class="option-letter">${optionLetter})</div>
-                <input type="hidden" name="options" value="${optionLetter}">
-                <input type="text" name="option_text" class="form-control option-input" placeholder="Option text" required>
-                <span class="remove-option-btn" onclick="this.parentElement.remove()">×</span>
-            `;
-            
-            container.appendChild(optionRow);
-        }
-        
-        // Format MCQ options before submission
-        document.querySelector('form').addEventListener('submit', function(e) {
-            const questionType = document.getElementById('question_type').value;
-            
-            if (questionType === 'MCQ') {
-                const options = document.getElementsByName('options');
-                const optionTexts = document.getElementsByName('option_text');
-                let correctAnswer = '';
-                
-                for (let i = 0; i < options.length; i++) {
-                    correctAnswer += options[i].value + ') ' + optionTexts[i].value;
-                    if (i < options.length - 1) {
-                        correctAnswer += '|';
-                    }
-                }
-                
-                document.getElementById('correct_answer').value = correctAnswer;
-            }
-        });
-        
-        // Initialize MCQ options if editing an MCQ question
-        <% if (questionToEdit != null && "MCQ".equals(questionToEdit.getQuestionType())) { %>
-            window.onload = function() {
-                document.getElementById('question_type').dispatchEvent(new Event('change'));
-                const options = '<%= questionToEdit.getCorrectAnswer() %>'.split('|');
-                const container = document.getElementById('optionsContainer');
-                container.innerHTML = '';
-                
-                options.forEach(option => {
-                    const parts = option.split(') ');
-                    const letter = parts[0];
-                    const text = parts.length > 1 ? parts[1] : '';
-                    addOption(letter);
-                    
-                    // Set the option text
-                    const inputs = container.getElementsByTagName('input');
-                    inputs[inputs.length - 1].value = text;
-                });
-            };
-        <% } %>
+    }
+
+    // Validate correct option selected
+    if (!correctOption) {
+        alert("Please select the correct answer");
+        return false;
+    }
+
+    return true;
+}
+
+function showQuestionForm() {
+    const testId = document.getElementById('testSelector').value;
+    if (!testId) {
+        alert("Please select a test first");
+        return;
+    }
+    document.getElementById('form_test_id').value = testId;
+    document.getElementById('questionForm').style.display = 'block';
+    document.getElementById('questionForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideQuestionForm() {
+    document.getElementById('questionForm').style.display = 'none';
+}
+
     </script>
 </body>
 </html>

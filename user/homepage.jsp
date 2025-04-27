@@ -1,4 +1,4 @@
-<%@ page import="my_pack.AssessmentManager, my_pack.DBConnection, java.util.List, java.util.Map, java.sql.*" %>
+<%@ page import="my_pack.AssessmentManager,my_pack.UserManager, my_pack.DBConnection, java.util.List, java.util.Map, java.sql.*" %>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -310,9 +310,19 @@
 <body>
     <% 
         // Static user profile
-        String userName = "Marwan Amr Taher";
-        String userEmail = "marwanam980@gmail.com";
-        int userId = 1;
+       Integer userId = (Integer) session.getAttribute("userId");
+
+    if (userId == null) {
+        response.sendRedirect("login.jsp"); // Redirect to login if user is not logged in
+        return;
+    }
+
+    // Get user profile data
+    UserManager userManager = new UserManager();
+    Map<String, String> userProfile = userManager.getUserProfile(userId);
+
+    String userName = userProfile.get("name");
+    String userEmail = userProfile.get("email");
         
         // Get search query if exists
         String searchQuery = request.getParameter("search");
@@ -397,7 +407,7 @@
                                 <p class="card-description"><%= assessment.get("description") %></p>
                                 <div class="card-footer">
                                     <span class="card-duration">30 Minutes</span>
-                                    <a href="#" class="start-button">Start Test</a>
+                                    <a href="assessmentDetails.jsp?id=<%= assessment.get("id") %>" class="start-button">Start Test</a>
                                 </div>
                             </div>
                         </div>
@@ -435,21 +445,13 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <% if (testHistory != null && !testHistory.isEmpty()) { %>
-                        <% for (Map<String, String> history : testHistory) { %>
-                            <tr>
-                                <td><%= history.get("title") %></td>
-                                <td><%= history.get("score") != null ? history.get("score") + "%" : "N/A" %></td>
-                                <td class="<%= "completed".equalsIgnoreCase(history.get("status")) ? "status-completed" : "status-pending" %>">
-                                    <%= history.get("status") %>
-                                </td>
-                            </tr>
-                        <% } %>
-                    <% } else { %>
-                        <tr>
-                            <td colspan="3">No test history available</td>
-                        </tr>
-                    <% } %>
+                   <% for (Map<String, String> history : testHistory) { %>
+                <tr>
+                    <td><%= history.get("title") %></td>
+                    <td><%= history.get("score") %></td>
+                    <td><%= history.get("status") %></td>
+                </tr>
+            <% } %>
                 </tbody>
             </table>
         </section>
