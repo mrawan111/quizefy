@@ -401,10 +401,8 @@
             <ul class="sidebar-menu">
                 <li><a href="index.jsp" class="active">Dashboard</a></li>
                 <li><a href="assessments.jsp">Manage Assessments</a></li>
-                <li><a href="manageTests.jsp">Manage Tests</a></li>
                 <li><a href="users.jsp">Manage Users</a></li>
                 <li><a href="reports.jsp">Performance Reports</a></li>
-                <li><a href="questions.jsp">Question Bank</a></li>
             </ul>
         </div>
 
@@ -420,36 +418,6 @@
             <div class="card">
                 <div class="user-table-actions">
                     <h3>All Users</h3>
-                    <button class="btn btn-primary" id="addUserBtn">+ Add New User</button>
-                </div>
-
-                <!-- User Creation Form (initially hidden) -->
-                <div class="card" id="userForm" style="display: none; margin-bottom: 20px;">
-                    <h3>Create New User</h3>
-                    <form method="POST">
-                        <div class="form-group">
-                            <label for="userName">Name</label>
-                            <input type="text" id="userName" name="name" class="form-control" placeholder="Enter full name" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="userEmail">Email</label>
-                            <input type="email" id="userEmail" name="email" class="form-control" placeholder="Enter email address" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="userPassword">Password</label>
-                            <input type="password" id="userPassword" name="password" class="form-control" placeholder="Enter password" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="userRole">Role</label>
-                            <select id="userRole" name="role" class="form-control" required>
-                                <option value="admin">Admin</option>
-                                <option value="recruiter">Recruiter</option>
-                                <option value="candidate">Candidate</option>
-                            </select>
-                        </div>
-                        <button type="submit" name="createUser" class="btn btn-primary">Create User</button>
-                        <button type="button" class="btn" onclick="document.getElementById('userForm').style.display='none'">Cancel</button>
-                    </form>
                 </div>
 
                 <table>
@@ -458,7 +426,6 @@
                             <th>User</th>
                             <th>Email</th>
                             <th>Role</th>
-                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -502,40 +469,15 @@
                             </td>
                             <td><%= rs.getString("email") %></td>
                             <td><span class="role-badge <%= roleClass %>"><%= rs.getString("role") %></span></td>
-                            <td>
-                                <button class="btn btn-sm btn-primary" onclick="openRoleModal(<%= rs.getInt("id") %>, '<%= rs.getString("role") %>')">Change Role</button>
-                                <a href="?delete=<%= rs.getInt("id") %>" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this user?')">Delete</a>
-                            </td>
                         </tr>
                         <%
                                 }
                             } catch (Exception e) {
-                                out.println("<tr><td colspan='4'>Error loading users: " + e.getMessage() + "</td></tr>");
+                                out.println("<tr><td colspan='3'>Error loading users: " + e.getMessage() + "</td></tr>");
                             }
                         %>
                     </tbody>
                 </table>
-            </div>
-
-            <!-- Role Update Modal -->
-            <div id="roleModal" class="modal">
-                <div class="modal-content">
-                    <span class="close" onclick="closeRoleModal()">&times;</span>
-                    <h3>Update User Role</h3>
-                    <form method="POST">
-                        <input type="hidden" id="modalUserId" name="userId">
-                        <div class="form-group">
-                            <label for="modalNewRole">Select New Role</label>
-                            <select id="modalNewRole" name="newRole" class="form-control">
-                                <option value="admin">Admin</option>
-                                <option value="recruiter">Recruiter</option>
-                                <option value="candidate">Candidate</option>
-                            </select>
-                        </div>
-                        <button type="submit" name="updateRole" class="btn btn-primary">Update Role</button>
-                        <button type="button" class="btn" onclick="closeRoleModal()">Cancel</button>
-                    </form>
-                </div>
             </div>
 
             <div class="footer">
@@ -544,30 +486,6 @@
             </div>
         </div>
     </div>
-
-    <script>
-        // Toggle user creation form
-        document.getElementById('addUserBtn').addEventListener('click', function() {
-            document.getElementById('userForm').style.display = 'block';
-        });
-        
-        // Role modal functions
-        function openRoleModal(userId, currentRole) {
-            document.getElementById('modalUserId').value = userId;
-            document.getElementById('modalNewRole').value = currentRole;
-            document.getElementById('roleModal').style.display = 'block';
-        }
-        
-        function closeRoleModal() {
-            document.getElementById('roleModal').style.display = 'none';
-        }
-        
-        // Close modal when clicking outside of it
-        window.onclick = function(event) {
-            if (event.target == document.getElementById('roleModal')) {
-                closeRoleModal();
-            }
-        }
-    </script>
 </body>
+
 </html>

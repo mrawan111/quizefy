@@ -109,9 +109,12 @@
                     session.setAttribute("userRole", role);
                     session.setAttribute("userId", userId);  // Save userId to session
 
-                    if ("admin".equals(role) || "recruiter".equals(role)) {
-                        response.sendRedirect("index.jsp");
-                    } else if ("candidate".equals(role)) {
+                    if ("admin".equals(role)  ) {
+                        response.sendRedirect("admin/index.jsp");
+                    }else if("recruiter".equals(role)){
+                        response.sendRedirect("recruiter/index.jsp");
+                    } 
+                    else if ("candidate".equals(role)) {
                         response.sendRedirect("user/homepage.jsp");
                     } else {
                         out.println("<p style='color:red;text-align:center;'>Unknown role. Contact admin.</p>");
