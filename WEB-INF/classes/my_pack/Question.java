@@ -8,9 +8,9 @@ public class Question {
     private int difficulty;
     private String correctAnswer;
     private float weight;
-        private String testTitle;
-            private int testId;
-               private String optionsText;  // Stores options as JSON string
+    private String testTitle;
+    private int testId;
+    private String optionsText;  // Stores options as JSON string
     private char correctOption;
 
 

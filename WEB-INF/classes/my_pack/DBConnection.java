@@ -4,9 +4,9 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 
 public class DBConnection {
-    private static final String URL = "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway";
+       private static final String URL = "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
     private static final String USER = "postgres";
-    private static final String PASSWORD = "TzRGIYmjwyLwlaZPPGoziHjOakANiumm";
+    private static final String PASSWORD = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
 
     public static Connection getConnection() throws SQLException {
         try {

@@ -5,6 +5,7 @@
     int assessmentId = 0;
     String assessmentName = "";
     List<Map<String, String>> questions = new ArrayList<>();
+    Map<Integer, List<Map<String, String>>> questionOptions = new HashMap<>();
     String errorMessage = null;
     
     try {
@@ -25,7 +26,15 @@
             List<Map<String, String>> tests = manager.getTestsForAssessment(assessmentId);
             for (Map<String, String> test : tests) {
                 int testId = Integer.parseInt(test.get("id"));
-                questions.addAll(manager.getQuestionsByTestId(testId));
+                List<Map<String, String>> testQuestions = manager.getQuestionsByTestId(testId);
+                questions.addAll(testQuestions);
+                
+                // Get options for each question
+                for (Map<String, String> question : testQuestions) {
+                    int questionId = Integer.parseInt(question.get("id"));
+                    List<Map<String, String>> options = manager.getQuestionOptions(questionId);
+                    questionOptions.put(questionId, options);
+                }
             }
             
             if (questions.isEmpty()) {
@@ -115,10 +124,18 @@
         
         .options-list {
             list-style-type: none;
+            padding-left: 0;
         }
         
         .option-item {
             margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+            background-color: var(--light-gray);
+        }
+        
+        .option-item:hover {
+            background-color: var(--medium-gray);
         }
         
         .option-input {
@@ -143,6 +160,7 @@
             cursor: pointer;
             font-size: 16px;
             margin-top: 20px;
+            transition: background-color 0.3s;
         }
         
         .submit-btn:hover {
@@ -154,17 +172,41 @@
             margin-bottom: 20px;
             font-weight: 600;
             color: var(--primary-color);
+            font-size: 1.2rem;
+        }
+        
+        .error-message {
+            background-color: #ffebee;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #c62828;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 15px;
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
         }
     </style>
     <script>
         // Timer for 30 minutes
         let timeLeft = 30 * 60;
         const timerElement = document.getElementById('timer');
+        const timerDisplay = document.getElementById('timer-display');
         
         function updateTimer() {
             const minutes = Math.floor(timeLeft / 60);
             const seconds = timeLeft % 60;
-            timerElement.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            const displayText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            
+            timerElement.textContent = displayText;
+            timerDisplay.textContent = displayText;
             
             if (timeLeft <= 0) {
                 document.getElementById('testForm').submit();
@@ -197,10 +239,12 @@
             
             <form id="testForm" action="submitTest.jsp" method="post">
                 <input type="hidden" name="assessment_id" value="<%= assessmentId %>">
-                <input type="hidden" name="user_id" value="1"> <!-- Hardcoded for now -->
+                <input type="hidden" name="user_id" value="<%= session.getAttribute("userId") != null ? session.getAttribute("userId") : "" %>">
                 
                 <% for (int i = 0; i < questions.size(); i++) { 
                     Map<String, String> question = questions.get(i);
+                    int questionId = Integer.parseInt(question.get("id"));
+                    List<Map<String, String>> options = questionOptions.get(questionId);
                 %>
                     <div class="question">
                         <div class="question-text">Q<%= i+1 %>. <%= question.get("text") %></div>
@@ -211,17 +255,21 @@
                         
                         <% if ("MCQ".equals(question.get("type"))) { %>
                             <ul class="options-list">
-                                <% for (int j = 1; j <= 4; j++) { %>
+                                <% for (Map<String, String> option : options) { %>
                                     <li class="option-item">
-                                        <input type="radio" name="q_<%= question.get("id") %>" 
-                                               id="q<%= question.get("id") %>_<%= j %>" 
-                                               value="<%= j %>" class="option-input">
-                                        <label for="q<%= question.get("id") %>_<%= j %>">Option <%= j %></label>
+                                        <input type="radio" 
+                                               name="q_<%= questionId %>" 
+                                               id="q<%= questionId %>_<%= option.get("id") %>" 
+                                               value="<%= option.get("id") %>" 
+                                               class="option-input" required>
+                                        <label for="q<%= questionId %>_<%= option.get("id") %>">
+                                            <%= option.get("option_text") %>
+                                        </label>
                                     </li>
                                 <% } %>
                             </ul>
                         <% } else { %>
-                            <textarea name="q_<%= question.get("id") %>" class="text-answer" rows="4"></textarea>
+                            <textarea name="q_<%= questionId %>" class="text-answer" rows="4" required></textarea>
                         <% } %>
                     </div>
                 <% } %>

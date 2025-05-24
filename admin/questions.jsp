@@ -46,19 +46,21 @@
         String testIdParam = request.getParameter("test_id");
 
         try {
-            // Convert options to pipe-separated string
-            String optionsText = String.join("|", options);
+            conn = DBConnection.getConnection();
+            conn.setAutoCommit(false); // Start transaction
             
             if (questionId != null && !questionId.isEmpty()) {
+                // Update existing question
                 stmt = conn.prepareStatement(
                     "UPDATE questions SET text=?, question_type=?, difficulty=?, weight=?, " +
-                    "test_id=?, options_text=?, correct_option=? WHERE id=?"
+                    "test_id=? WHERE id=?"
                 );
-                stmt.setInt(8, Integer.parseInt(questionId));
+                stmt.setInt(6, Integer.parseInt(questionId));
             } else {
+                // Insert new question and get generated ID
                 stmt = conn.prepareStatement(
                     "INSERT INTO questions (text, question_type, difficulty, weight, " +
-                    "test_id, options_text, correct_option) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    "test_id) VALUES (?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS
                 );
             }
             
@@ -67,21 +69,58 @@
             stmt.setInt(3, Integer.parseInt(difficulty));
             stmt.setFloat(4, Float.parseFloat(weight));
             stmt.setInt(5, Integer.parseInt(testIdParam));
-            stmt.setString(6, optionsText);
-            System.out.println("Correct option value: " + correctOption); // Add this line
-
-            stmt.setString(7, correctOption);
             
             int rows = stmt.executeUpdate();
-            if (rows > 0) {
-                successMessage = questionId != null ? 
-                    "Question updated successfully!" : "Question created successfully!";
-                response.sendRedirect("questions.jsp?test_id=" + testIdParam);
-                return;
+            
+            int insertedQuestionId;
+            if (questionId != null) {
+                insertedQuestionId = Integer.parseInt(questionId);
+            } else {
+                // Get the generated question ID
+                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        insertedQuestionId = generatedKeys.getInt(1);
+                    } else {
+                        throw new SQLException("Creating question failed, no ID obtained.");
+                    }
+                }
             }
+            
+            // Delete existing options if updating
+            if (questionId != null) {
+                stmt = conn.prepareStatement("DELETE FROM question_options WHERE question_id = ?");
+                stmt.setInt(1, insertedQuestionId);
+                stmt.executeUpdate();
+            }
+            
+            // Insert all options
+            stmt = conn.prepareStatement(
+                "INSERT INTO question_options (question_id, option_text, is_correct) VALUES (?, ?, ?)"
+            );
+            
+            for (int i = 0; i < options.length; i++) {
+                if (options[i] == null || options[i].trim().isEmpty()) continue;
+                
+                char optionLetter = (char)('A' + i);
+                boolean isCorrect = (String.valueOf(optionLetter).equals(correctOption));
+                
+                stmt.setInt(1, insertedQuestionId);
+                stmt.setString(2, options[i].trim());
+                stmt.setBoolean(3, isCorrect);
+                stmt.addBatch();
+            }
+            
+            stmt.executeBatch();
+            conn.commit(); // Commit transaction
+            successMessage = questionId != null ? 
+                "Question updated successfully!" : "Question created successfully!";
+            response.sendRedirect("questions.jsp?test_id=" + testIdParam);
+            return;
         } catch (Exception e) {
+            if (conn != null) conn.rollback();
             error = "Error saving question: " + e.getMessage();
         } finally {
+            if (conn != null) conn.setAutoCommit(true);
             if (stmt != null) stmt.close();
         }
     }
@@ -90,21 +129,38 @@
     String deleteId = request.getParameter("delete_id");
     if (deleteId != null) {
         try {
+            conn = DBConnection.getConnection();
+            conn.setAutoCommit(false);
+            
+            // First delete options
+            stmt = conn.prepareStatement("DELETE FROM question_options WHERE question_id = ?");
+            stmt.setInt(1, Integer.parseInt(deleteId));
+            stmt.executeUpdate();
+            
+            // Then delete question
             stmt = conn.prepareStatement("DELETE FROM questions WHERE id = ?");
             stmt.setInt(1, Integer.parseInt(deleteId));
             stmt.executeUpdate();
+            
+            conn.commit();
             successMessage = "Question deleted successfully!";
         } catch (Exception e) {
+            if (conn != null) conn.rollback();
             error = "Error deleting question: " + e.getMessage();
         } finally {
+            if (conn != null) conn.setAutoCommit(true);
             if (stmt != null) stmt.close();
         }
     }
 
     // Load questions
     try {
+        conn = DBConnection.getConnection();
         StringBuilder query = new StringBuilder(
-            "SELECT q.*, t.title as test_title FROM questions q LEFT JOIN tests t ON q.test_id = t.id " +
+            "SELECT q.id, q.text, q.question_type, q.difficulty, q.weight, " +
+            "q.test_id, t.title as test_title " +
+            "FROM questions q " +
+            "LEFT JOIN tests t ON q.test_id = t.id " +
             "WHERE q.question_type = 'MCQ'"
         );
         
@@ -139,11 +195,34 @@
             question.setQuestionType(rs.getString("question_type"));
             question.setDifficulty(rs.getInt("difficulty"));
             question.setWeight(rs.getFloat("weight"));
-            question.setOptionsText(rs.getString("options_text"));
-            question.setCorrectOption(rs.getString("correct_option").charAt(0));
             question.setTestId(rs.getInt("test_id"));
             question.setTestTitle(rs.getString("test_title"));
+            
+            // Now load options separately
+            PreparedStatement optionsStmt = conn.prepareStatement(
+                "SELECT option_text, is_correct FROM question_options " +
+                "WHERE question_id = ? ORDER BY id"
+            );
+            optionsStmt.setInt(1, question.getId());
+            ResultSet optionsRs = optionsStmt.executeQuery();
+            
+            List<String> optionsList = new ArrayList<>();
+            char correctOption = 'A';
+            int index = 0;
+            while (optionsRs.next()) {
+                optionsList.add(optionsRs.getString("option_text"));
+                if (optionsRs.getBoolean("is_correct")) {
+                    correctOption = (char)('A' + index);
+                }
+                index++;
+            }
+            
+            question.setOptionsText(String.join("|", optionsList));
+            question.setCorrectOption(correctOption);
             questions.add(question);
+            
+            optionsRs.close();
+            optionsStmt.close();
         }
     } catch (Exception e) {
         error = "Error loading questions: " + e.getMessage();
@@ -159,6 +238,7 @@
     if (questionIdToEdit != null && !questionIdToEdit.isEmpty()) {
         try {
             conn = DBConnection.getConnection();
+            // Load question
             stmt = conn.prepareStatement("SELECT * FROM questions WHERE id = ?");
             stmt.setInt(1, Integer.parseInt(questionIdToEdit));
             rs = stmt.executeQuery();
@@ -169,9 +249,29 @@
                 questionToEdit.setQuestionType(rs.getString("question_type"));
                 questionToEdit.setDifficulty(rs.getInt("difficulty"));
                 questionToEdit.setWeight(rs.getFloat("weight"));
-                questionToEdit.setOptionsText(rs.getString("options_text"));
-                questionToEdit.setCorrectOption(rs.getString("correct_option").charAt(0));
                 questionToEdit.setTestId(rs.getInt("test_id"));
+                
+                // Load options
+                stmt = conn.prepareStatement(
+                    "SELECT option_text, is_correct FROM question_options " +
+                    "WHERE question_id = ? ORDER BY id"
+                );
+                stmt.setInt(1, questionToEdit.getId());
+                rs = stmt.executeQuery();
+                
+                List<String> options = new ArrayList<>();
+                char correctOption = 'A';
+                int index = 0;
+                while (rs.next()) {
+                    options.add(rs.getString("option_text"));
+                    if (rs.getBoolean("is_correct")) {
+                        correctOption = (char)('A' + index);
+                    }
+                    index++;
+                }
+                
+                questionToEdit.setOptionsText(String.join("|", options));
+                questionToEdit.setCorrectOption(correctOption);
             }
         } catch (Exception e) {
             error = "Error loading question for editing: " + e.getMessage();
@@ -188,9 +288,7 @@
 <head>
     <title>Question Bank</title>
     <style>
-
-        /* All CSS styles remain exactly the same as previous version */
-                :root {
+        :root {
             --primary-color: #3498db;
             --secondary-color: #2980b9;
             --light-gray: #f5f5f5;
@@ -219,100 +317,101 @@
             display: flex;
             min-height: 100vh;
         }
+        
         /* Styles for the options container */
-#optionsContainer {
-    margin-top: 20px;
-}
+        #optionsContainer {
+            margin-top: 20px;
+        }
 
-/* Each option's row */
-.option-row {
-    display: flex;
-    align-items: center;
-    margin-bottom: 15px;
-    gap: 15px;
-}
+        /* Each option's row */
+        .option-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            gap: 15px;
+        }
 
-/* Input field for the option text */
-.option-row input[type="text"] {
-    flex: 1;
-    padding: 10px;
-    border: 1px solid var(--medium-gray);
-    border-radius: 5px;
-    font-size: 16px;
-}
+        /* Input field for the option text */
+        .option-row input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--medium-gray);
+            border-radius: 5px;
+            font-size: 16px;
+        }
 
-/* Label for the option text */
-.option-row label {
-    margin-bottom: 8px;
-    font-weight: 500;
-    color: var(--dark-gray);
-}
+        /* Label for the option text */
+        .option-row label {
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--dark-gray);
+        }
 
-/* Radio button for the correct option */
-.option-row input[type="radio"] {
-    margin-right: 10px;
-}
+        /* Radio button for the correct option */
+        .option-row input[type="radio"] {
+            margin-right: 10px;
+        }
 
-/* Correct option indicator text */
-.correct-option-indicator {
-    color: var(--success-color);
-    font-weight: bold;
-}
+        /* Correct option indicator text */
+        .correct-option-indicator {
+            color: var(--success-color);
+            font-weight: bold;
+        }
 
-/* Remove button for the option */
-.option-row button {
-    background-color: var(--danger-color);
-    color: var(--white);
-    border: none;
-    padding: 8px 12px;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
+        /* Remove button for the option */
+        .option-row button {
+            background-color: var(--danger-color);
+            color: var(--white);
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
 
-.option-row button:hover {
-    background-color: #c0392b;
-}
-/* Style for the radio buttons (correct option) */
-.option-row input[type="radio"] {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    border: 2px solid var(--primary-color);
-    background-color: var(--white);
-    appearance: none;
-    transition: all 0.3s ease;
-    cursor: pointer;
-}
+        .option-row button:hover {
+            background-color: #c0392b;
+        }
+        
+        /* Style for the radio buttons (correct option) */
+        .option-row input[type="radio"] {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--primary-color);
+            background-color: var(--white);
+            appearance: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
 
-/* Hover effect for the radio button */
-.option-row input[type="radio"]:hover {
-    border-color: var(--secondary-color);
-}
+        /* Hover effect for the radio button */
+        .option-row input[type="radio"]:hover {
+            border-color: var(--secondary-color);
+        }
 
-/* Checked state (selected radio button) */
-.option-row input[type="radio"]:checked {
-    background-color: var(--primary-color);
-    border-color: var(--primary-color);
-}
+        /* Checked state (selected radio button) */
+        .option-row input[type="radio"]:checked {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
 
-/* When the radio button is checked, the indicator color changes */
-.option-row input[type="radio"]:checked::before {
-    content: "";
-    display: block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background-color: var(--white);
-    margin: 3px;
-}
+        /* When the radio button is checked, the indicator color changes */
+        .option-row input[type="radio"]:checked::before {
+            content: "";
+            display: block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--white);
+            margin: 3px;
+        }
 
-/* Optional: If you want to add a hover effect or style when focus */
-.option-row input[type="radio"]:focus {
-    outline: none;
-    box-shadow: 0 0 5px var(--primary-color);
-}
-
+        /* Optional: If you want to add a hover effect or style when focus */
+        .option-row input[type="radio"]:focus {
+            outline: none;
+            box-shadow: 0 0 5px var(--primary-color);
+        }
         
         .sidebar {
             width: 250px;
@@ -578,24 +677,6 @@
                 flex-direction: column;
             }
         }
-        /* ... rest of the CSS remains unchanged ... */
-        
-        .option-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-            gap: 10px;
-        }
-        
-        .option-row input[type="text"] {
-            flex: 1;
-        }
-        
-        .correct-option-indicator {
-            color: var(--success-color);
-            font-weight: bold;
-            margin-left: 10px;
-        }
     </style>
 </head>
 <body>
@@ -695,35 +776,31 @@
 
                     <div class="form-group">
                         <label>Options</label>
-                       <div id="optionsContainer">
-    <!-- Option A -->
-    <div class="option-row">
-        <input type="text" name="options" placeholder="Option A" required>
-    </div>
-    <!-- Option B -->
-    <div class="option-row">
-        <input type="text" name="options" placeholder="Option B" required>
-    </div>
-    <!-- Option C (Optional) -->
-    <div class="option-row">
-        <input type="text" name="options" placeholder="Option C">
-    </div>
-    <!-- Option D (Optional) -->
-    <div class="option-row">
-        <input type="text" name="options" placeholder="Option D">
-    </div>
-</div>
-
-<!-- Dropdown to select the correct option -->
-<label for="correct_option">Select Correct Answer</label>
-<select id="correct_option" name="correct_option" required>
-    <option value="" disabled selected>Select Correct Answer</option>
-    <option value="A">Option A</option>
-    <option value="B">Option B</option>
-    <option value="C">Option C</option>
-    <option value="D">Option D</option>
-</select>
-
+                        <div id="optionsContainer">
+                            <% if (questionToEdit == null) { %>
+                                <!-- Default options for new question -->
+                                <div class="option-row">
+                                    <input type="text" name="options" placeholder="Option A" required>
+                                    <input type="radio" name="correct_option" value="A" required>
+                                    <label>Correct Answer</label>
+                                </div>
+                                <div class="option-row">
+                                    <input type="text" name="options" placeholder="Option B" required>
+                                    <input type="radio" name="correct_option" value="B">
+                                    <label>Correct Answer</label>
+                                </div>
+                                <div class="option-row">
+                                    <input type="text" name="options" placeholder="Option C">
+                                    <input type="radio" name="correct_option" value="C">
+                                    <label>Correct Answer</label>
+                                </div>
+                                <div class="option-row">
+                                    <input type="text" name="options" placeholder="Option D">
+                                    <input type="radio" name="correct_option" value="D">
+                                    <label>Correct Answer</label>
+                                </div>
+                            <% } %>
+                        </div>
                         <button type="button" class="btn btn-primary" onclick="addOption()">+ Add Option</button>
                     </div>
 
@@ -800,82 +877,105 @@
     </div>
 
     <script>
-   function addOption(letter, text, isCorrect) {
-    const container = document.getElementById('optionsContainer');
-    const optionCount = container.children.length;
-    const optionLetter = letter || String.fromCharCode(65 + optionCount);
-    const optionText = text || '';
-    
-    const optionRow = document.createElement('div');
-    optionRow.className = 'option-row';
-    optionRow.innerHTML = `
-        <input type="text" name="options" value="${optionText}" placeholder="Option ${optionLetter}" required>
-        <input type="radio" name="correct_option" value="${optionLetter}" ${isCorrect ? 'checked' : ''} required>
-        <label>Correct Answer</label>
-        <button type="button" onclick="removeOption(this)" class="btn btn-sm btn-danger">×</button>
-    `;
-    
-    container.appendChild(optionRow);
-}
-
-function removeOption(button) {
-    const container = document.getElementById('optionsContainer');
-    if (container.children.length > 2) {
-        button.parentElement.remove();
-        // Renumber remaining options
-        const options = container.querySelectorAll('.option-row');
-        options.forEach((row, index) => {
-            const letter = String.fromCharCode(65 + index);
-            row.querySelector('input[type="text"]').placeholder = `Option ${letter}`;
-            row.querySelector('input[type="radio"]').value = letter;
-        });
-    } else {
-        alert("Questions must have at least 2 options");
-    }
-}
-function validateForm() {
-    const options = document.querySelectorAll('input[name="options"]');
-    const correctOption = document.getElementById('correct_option').value;
-    
-    // Validate at least 2 options
-    if (options.length < 2) {
-        alert("Please provide at least 2 options");
-        return false;
-    }
-
-    // Validate all options have text
-    for (let i = 0; i < options.length; i++) {
-        if (!options[i].value.trim()) {
-            alert("Please fill in all option texts");
-            options[i].focus();
-            return false;
+        function addOption(letter, text, isCorrect) {
+            const container = document.getElementById('optionsContainer');
+            const optionCount = container.children.length;
+            const optionLetter = letter || String.fromCharCode(65 + optionCount);
+            const optionText = text || '';
+            
+            const optionRow = document.createElement('div');
+            optionRow.className = 'option-row';
+            optionRow.innerHTML = `
+                <input type="text" name="options" value="${optionText}" placeholder="Option ${optionLetter}" required>
+                <input type="radio" name="correct_option" value="${optionLetter}" ${isCorrect ? 'checked' : ''}>
+                <label>Correct Answer</label>
+                <button type="button" onclick="removeOption(this)" class="btn btn-sm btn-danger">×</button>
+            `;
+            
+            container.appendChild(optionRow);
         }
-    }
 
-    // Validate correct option selected
-    if (!correctOption) {
-        alert("Please select the correct answer");
-        return false;
-    }
+        function removeOption(button) {
+            const container = document.getElementById('optionsContainer');
+            if (container.children.length > 2) {
+                button.parentElement.remove();
+                // Renumber remaining options
+                const options = container.querySelectorAll('.option-row');
+                options.forEach((row, index) => {
+                    const letter = String.fromCharCode(65 + index);
+                    row.querySelector('input[type="text"]').placeholder = `Option ${letter}`;
+                    row.querySelector('input[type="radio"]').value = letter;
+                });
+            } else {
+                alert("Questions must have at least 2 options");
+            }
+        }
 
-    return true;
-}
+        function validateForm() {
+            const options = document.querySelectorAll('input[name="options"]');
+            const correctOption = document.querySelector('input[name="correct_option"]:checked');
+            
+            // Validate at least 2 options
+            let filledOptions = 0;
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value.trim()) {
+                    filledOptions++;
+                }
+            }
+            
+            if (filledOptions < 2) {
+                alert("Please provide at least 2 options");
+                return false;
+            }
 
-function showQuestionForm() {
-    const testId = document.getElementById('testSelector').value;
-    if (!testId) {
-        alert("Please select a test first");
-        return;
-    }
-    document.getElementById('form_test_id').value = testId;
-    document.getElementById('questionForm').style.display = 'block';
-    document.getElementById('questionForm').scrollIntoView({ behavior: 'smooth' });
-}
+            // Validate all options have text
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value.trim() === "" && i < 2) {
+                    alert("Please fill in all required option texts");
+                    options[i].focus();
+                    return false;
+                }
+            }
 
-function hideQuestionForm() {
-    document.getElementById('questionForm').style.display = 'none';
-}
+            // Validate correct option selected
+            if (!correctOption) {
+                alert("Please select the correct answer");
+                return false;
+            }
 
+            return true;
+        }
+
+        function showQuestionForm() {
+            const testId = document.getElementById('testSelector').value;
+            if (!testId) {
+                alert("Please select a test first");
+                return;
+            }
+            document.getElementById('form_test_id').value = testId;
+            document.getElementById('questionForm').style.display = 'block';
+            document.getElementById('questionForm').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function hideQuestionForm() {
+            document.getElementById('questionForm').style.display = 'none';
+        }
+
+        // Initialize edit form if editing
+        <% if (questionToEdit != null) { %>
+            document.addEventListener('DOMContentLoaded', function() {
+                const options = "<%= questionToEdit.getOptionsText() %>".split("|");
+                const correctOption = String.fromCharCode(<%= (int)questionToEdit.getCorrectOption() %>);
+                
+                const container = document.getElementById('optionsContainer');
+                container.innerHTML = '';
+                
+                options.forEach((option, index) => {
+                    const letter = String.fromCharCode(65 + index);
+                    addOption(letter, option, letter === correctOption);
+                });
+            });
+        <% } %>
     </script>
 </body>
 </html>

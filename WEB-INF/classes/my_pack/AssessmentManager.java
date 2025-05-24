@@ -4,9 +4,10 @@ import java.sql.*;
 import java.util.*;
 
 public class AssessmentManager {
-    private String url = "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway";
-    private String username = "postgres";
-    private String password = "TzRGIYmjwyLwlaZPPGoziHjOakANiumm";
+    private static final String url = "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
+    private static final String username = "postgres";
+    private static final String password = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
+
 
     static {
         try {
@@ -194,29 +195,73 @@ public class AssessmentManager {
     }
     return tests;
 }
+public List<Map<String, String>> getQuestionOptions(int questionId) {
+    List<Map<String, String>> options = new ArrayList<>();
+    String query = "SELECT id, option_text, is_correct FROM question_options WHERE question_id = ? ORDER BY id";
+    
+    try (Connection conn = connect();
+         PreparedStatement ps = conn.prepareStatement(query)) {
+        
+        ps.setInt(1, questionId);
+        ResultSet rs = ps.executeQuery();
+        
+        while (rs.next()) {
+            Map<String, String> option = new HashMap<>();
+            option.put("id", rs.getString("id"));
+            option.put("option_text", rs.getString("option_text"));
+            option.put("is_correct", rs.getString("is_correct"));
+            options.add(option);
+        }
+    } catch (SQLException e) {
+        System.err.println("Error getting question options: " + e.getMessage());
+        e.printStackTrace();
+    }
+    return options;
+}
 
 public List<Map<String, String>> getQuestionsByTestId(int testId) {
     List<Map<String, String>> questions = new ArrayList<>();
-    String query = "SELECT id, text, question_type, difficulty FROM questions WHERE test_id = ? ORDER BY id";
+    String query = "SELECT id, text, question_type, difficulty, correct_answer FROM questions WHERE test_id = ? ORDER BY id";
     
     try (Connection conn = connect();
          PreparedStatement ps = conn.prepareStatement(query)) {
         
         ps.setInt(1, testId);
-        try (ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                Map<String, String> question = new HashMap<>();
-                question.put("id", rs.getString("id"));
-                question.put("text", rs.getString("text"));
-                question.put("type", rs.getString("question_type"));
-                question.put("difficulty", rs.getString("difficulty"));
-                questions.add(question);
-            }
+        ResultSet rs = ps.executeQuery();
+        
+        while (rs.next()) {
+            Map<String, String> question = new HashMap<>();
+            question.put("id", rs.getString("id"));
+            question.put("text", rs.getString("text"));
+            question.put("type", rs.getString("question_type"));
+            question.put("difficulty", rs.getString("difficulty"));
+            question.put("correct_answer", rs.getString("correct_answer"));
+            questions.add(question);
         }
     } catch (SQLException e) {
         System.err.println("Error getting questions by test ID: " + e.getMessage());
         e.printStackTrace();
     }
     return questions;
+}public boolean checkAnswer(int questionId, String answer) {
+    String query = "SELECT correct_answer FROM questions WHERE id = ?";
+    try (Connection conn = connect();
+         PreparedStatement ps = conn.prepareStatement(query)) {
+        
+        ps.setInt(1, questionId);
+        ResultSet rs = ps.executeQuery();
+        if (rs.next()) {
+            String correctAnswer = rs.getString("correct_answer");
+            
+            // تحقق من null قبل المقارنة
+            if (correctAnswer != null && answer != null) {
+                return correctAnswer.equalsIgnoreCase(answer);
+            }
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+    return false;
 }
+
 }

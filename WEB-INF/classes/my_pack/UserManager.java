@@ -7,9 +7,10 @@ import java.util.List;
 import java.util.Map;
 
 public class UserManager {
-    private String url = "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway";
-    private String username = "postgres";
-    private String password = "TzRGIYmjwyLwlaZPPGoziHjOakANiumm";
+    private static final String url = "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
+    private static final String username = "postgres";
+    private static final String password = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
+
 
     static {
         try {
