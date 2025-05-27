@@ -4,10 +4,9 @@ import java.sql.*;
 import java.util.*;
 
 public class AssessmentManager {
-    private static final String url = "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
-    private static final String username = "postgres";
-    private static final String password = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
-
+private static final String url = "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
+private static final String username = "postgres";
+private static final String password = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
 
     static {
         try {
@@ -263,5 +262,14 @@ public List<Map<String, String>> getQuestionsByTestId(int testId) {
     }
     return false;
 }
-
+// Add to AssessmentManager.java
+public String generateShareableLink(int assessmentId) {
+    // In a real application, you might want to:
+    // 1. Generate a unique token
+    // 2. Store it in the database with expiration
+    // 3. Return a full URL
+    
+    // For simplicity, we'll just return the assessment ID for now
+    return "assessment.jsp?id=" + assessmentId;
+}
 }

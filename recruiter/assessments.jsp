@@ -459,15 +459,16 @@
                                     <span class="status-active">Active</span>
                                 </div>
                                 <p><%= a.get("description") %></p>
-                                <div class="actions">
-                                    <a href="assessments.jsp?edit=<%= a.get("id") %>" class="btn btn-sm btn-primary">Edit</a>
-                                    <form method="post" style="display: inline;">
-                                        <input type="hidden" name="action" value="delete">
-                                        <input type="hidden" name="id" value="<%= a.get("id") %>">
-                                        <button type="submit" class="btn btn-sm btn-danger" 
-                                            onclick="return confirm('Are you sure you want to delete this assessment?')">Delete</button>
-                                    </form>
-                                </div>
+                             <div class="actions">
+    <a href="assessments.jsp?edit=<%= a.get("id") %>" class="btn btn-sm btn-primary">Edit</a>
+    <button onclick="shareAssessment(<%= a.get("id") %>)" class="btn btn-sm" style="background-color: #9b59b6; color: white;">Share</button>
+    <form method="post" style="display: inline;">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="id" value="<%= a.get("id") %>">
+        <button type="submit" class="btn btn-sm btn-danger" 
+            onclick="return confirm('Are you sure you want to delete this assessment?')">Delete</button>
+    </form>
+</div>
                             </div>
                         <% } %>
                     <% } %>
@@ -480,5 +481,45 @@
             </div>
         </div>
     </div>
+ <!-- Add this script to the head section -->
+<script>
+function shareAssessment(assessmentId) {
+    // Generate the shareable link
+    const baseUrl = window.location.origin + window.location.pathname.replace('assessments.jsp', '');
+    const assessmentLink = baseUrl + 'assessmentDetails.jsp?id=' + assessmentId;
+    
+    // Options for sharing
+    const shareOptions = {
+        title: 'Share Assessment',
+        text: 'Please take this assessment:',
+        url: assessmentLink
+    };
+    
+    // Try using the Web Share API if available
+    if (navigator.share) {
+        navigator.share(shareOptions)
+            .then(() => console.log('Shared successfully'))
+            .catch(err => {
+                console.error('Error sharing:', err);
+                fallbackShare(assessmentLink);
+            });
+    } else {
+        fallbackShare(assessmentLink);
+    }
+}
+
+function fallbackShare(link) {
+    // Copy to clipboard
+    navigator.clipboard.writeText(link)
+        .then(() => {
+            alert('Assessment link copied to clipboard:\n' + link);
+        })
+        .catch(err => {
+            console.error('Failed to copy:', err);
+            // Last resort - show the link in a prompt
+            prompt('Copy this assessment link:', link);
+        });
+}
+</script>
 </body>
 </html>
