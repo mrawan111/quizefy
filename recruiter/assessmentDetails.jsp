@@ -2,19 +2,22 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%
     // Check if user is logged in
-    Integer userId = (Integer) session.getAttribute("userId");
-    boolean isLoggedIn = userId != null;
-
-    // Store the assessment ID to redirect after login
-    if (!isLoggedIn && request.getParameter("id") != null) {
-        session.setAttribute("redirectAfterLogin", "assessmentDetails.jsp?id=" + request.getParameter("id"));
+    if (session.getAttribute("userId") == null) {
+        // Store the requested URL to redirect after login
+        String requestedURL = request.getRequestURL().toString();
+        if (request.getQueryString() != null) {
+            requestedURL += "?" + request.getQueryString();
+        }
+        session.setAttribute("redirectAfterLogin", requestedURL);
+        response.sendRedirect("../login.jsp");
+        return;
     }
 
     // Initialize variables
     Map<String, String> assessment = new HashMap<>();
     List<Map<String, String>> tests = new ArrayList<>();
     String errorMessage = null;
-
+    
     try {
         String idParam = request.getParameter("id");
         if (idParam == null || idParam.trim().isEmpty()) {
@@ -23,7 +26,7 @@
             int assessmentId = Integer.parseInt(idParam);
             AssessmentManager manager = new AssessmentManager();
             assessment = manager.getAssessmentById(assessmentId);
-
+            
             if (assessment == null || assessment.isEmpty()) {
                 errorMessage = "Assessment not found with ID: " + assessmentId;
             } else {
@@ -191,11 +194,11 @@
                 <% } %>
             </div>
             
-         <!-- Replace the form at the bottom with this -->
-<form action="takeTest.jsp" method="get">
-    <input type="hidden" name="assessment_id" value="<%= request.getParameter("id") %>">
-    <button type="submit" class="start-test-btn">Start Assessment</button>
-</form>
+            <form action="takeTest.jsp" method="get">
+                <input type="hidden" name="assessment_id" value="<%= request.getParameter("id") %>">
+                <button type="submit" class="start-test-btn">Start Assessment</button>
+            </form>
+            
             <a href="homepage.jsp" class="back-link">← Back to Home</a>
         <% } %>
     </div>

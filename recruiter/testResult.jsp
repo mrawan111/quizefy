@@ -6,15 +6,18 @@
     Map<String, String> result = new HashMap<>();
     List<Map<String, String>> answers = new ArrayList<>();
     
-    String resultSql = "SELECT r.score, r.status, a.name as assessment_name " +
+    String resultSql = "SELECT r.score, r.status, a.name as assessment_name, " +
+                      "(SELECT COUNT(*) FROM user_answers WHERE test_result_id = r.id AND is_correct = true) as correct_count, " +
+                      "(SELECT COUNT(*) FROM user_answers WHERE test_result_id = r.id) as total_questions " +
                       "FROM test_results r " +
                       "JOIN assessments a ON r.assessment_id = a.id " +
                       "WHERE r.id = ?";
     
-    String answersSql = "SELECT q.text, ua.submitted_answer, ua.is_correct " +
+    String answersSql = "SELECT q.text, ua.submitted_answer, ua.is_correct, q.question_type " +
                        "FROM user_answers ua " +
                        "JOIN questions q ON ua.question_id = q.id " +
-                       "WHERE ua.test_id = ?";
+                       "WHERE ua.test_result_id = ? " +
+                       "ORDER BY ua.id";
     
     try (Connection conn = DBConnection.getConnection()) {
         // Get test result
@@ -25,6 +28,8 @@
                 result.put("score", rs.getString("score"));
                 result.put("status", rs.getString("status"));
                 result.put("assessment_name", rs.getString("assessment_name"));
+                result.put("correct_count", rs.getString("correct_count"));
+                result.put("total_questions", rs.getString("total_questions"));
             }
         }
         
@@ -37,13 +42,14 @@
                 answer.put("text", rs.getString("text"));
                 answer.put("answer", rs.getString("submitted_answer"));
                 answer.put("is_correct", rs.getString("is_correct"));
+                answer.put("type", rs.getString("question_type"));
                 answers.add(answer);
             }
         }
     } catch (SQLException e) {
         e.printStackTrace();
     }
-%>
+%>  
 
 <!DOCTYPE html>
 <html lang="en">

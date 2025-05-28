@@ -1,22 +1,6 @@
 <%@ page import="my_pack.UserManager" %>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
-<%
-    // Handle successful login
-    if ("POST".equalsIgnoreCase(request.getMethod())) {
-        // Your existing login logic
-        
-        // After successful login
-        String redirectUrl = (String) session.getAttribute("redirectAfterLogin");
-        if (redirectUrl != null) {
-            session.removeAttribute("redirectAfterLogin");
-            response.sendRedirect(redirectUrl);
-            return;
-        } else {
-            response.sendRedirect("homepage.jsp");
-            return;
-        }
-    }
-%>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -116,7 +100,6 @@
                 boolean success = um.loginUser(email, password);
 
                 if (success) {
-                    // Assuming getUserId, getUserRole, and getUserName are methods in UserManager
                     Integer userId = um.getUserId(email, password);
                     String role = um.getUserRole(email, password);
                     String name = um.getUserName(email, password);
@@ -124,17 +107,24 @@
                     session.setAttribute("userEmail", email);
                     session.setAttribute("userName", name);
                     session.setAttribute("userRole", role);
-                    session.setAttribute("userId", userId);  // Save userId to session
+                    session.setAttribute("userId", userId);
 
-                    if ("admin".equals(role)  ) {
-                        response.sendRedirect("admin/index.jsp");
-                    }else if("recruiter".equals(role)){
-                        response.sendRedirect("recruiter/index.jsp");
-                    } 
-                    else if ("candidate".equals(role)) {
-                        response.sendRedirect("user/homepage.jsp");
+                    // Check for redirect URL
+                    String redirectURL = (String) session.getAttribute("redirectAfterLogin");
+                    if (redirectURL != null) {
+                        session.removeAttribute("redirectAfterLogin");
+                        response.sendRedirect(redirectURL);
                     } else {
-                        out.println("<p style='color:red;text-align:center;'>Unknown role. Contact admin.</p>");
+                        // Default redirect based on role
+                        if ("admin".equals(role)) {
+                            response.sendRedirect("admin/index.jsp");
+                        } else if("recruiter".equals(role)) {
+                            response.sendRedirect("recruiter/index.jsp");
+                        } else if ("candidate".equals(role)) {
+                            response.sendRedirect("user/homepage.jsp");
+                        } else {
+                            out.println("<p style='color:red;text-align:center;'>Unknown role. Contact admin.</p>");
+                        }
                     }
                 } else {
                     out.println("<p style='color:red;text-align:center;'>Invalid email or password.</p>");

@@ -15,8 +15,9 @@
         // Establish the database connection
         Class.forName("org.postgresql.Driver");
         Connection conn = DriverManager.getConnection(
-            "jdbc:postgresql://crossover.proxy.rlwy.net:29928/railway", "postgres", "TzRGIYmjwyLwlaZPPGoziHjOakANiumm"
-        );
+ "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway",
+    "postgres",
+    "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV"          );
 
         Statement stmt = conn.createStatement();
 

@@ -5,42 +5,45 @@
     int assessmentId = 0;
     String assessmentName = "";
     List<Map<String, String>> questions = new ArrayList<>();
+    List<Map<String, String>> tests = new ArrayList<>();  // <-- declare here, empty list as default
+
     Map<Integer, List<Map<String, String>>> questionOptions = new HashMap<>();
     String errorMessage = null;
-    
     try {
-        String idParam = request.getParameter("assessment_id");
-        if (idParam == null || idParam.trim().isEmpty()) {
-            errorMessage = "Assessment ID is missing";
-        } else {
-            assessmentId = Integer.parseInt(idParam);
-            AssessmentManager manager = new AssessmentManager();
+    String idParam = request.getParameter("assessment_id");
+    if (idParam == null || idParam.trim().isEmpty()) {
+        errorMessage = "Assessment ID is missing";
+    } else {
+        assessmentId = Integer.parseInt(idParam);
+        AssessmentManager manager = new AssessmentManager();
+        
+        // Get assessment name
+        Map<String, String> assessment = manager.getAssessmentById(assessmentId);
+        if (assessment != null) {
+            assessmentName = assessment.get("name");
+        }
+        
+        // FIX: Actually load the tests for this assessment
+        tests = manager.getTestsForAssessment(assessmentId);
+        
+        // Now process each test
+        for (Map<String, String> test : tests) {
+            int testId = Integer.parseInt(test.get("id"));
+            List<Map<String, String>> testQuestions = manager.getQuestionsByTestId(testId);
+            questions.addAll(testQuestions);
             
-            // Get assessment name
-            Map<String, String> assessment = manager.getAssessmentById(assessmentId);
-            if (assessment != null) {
-                assessmentName = assessment.get("name");
-            }
-            
-            // Get all questions for all tests in this assessment
-            List<Map<String, String>> tests = manager.getTestsForAssessment(assessmentId);
-            for (Map<String, String> test : tests) {
-                int testId = Integer.parseInt(test.get("id"));
-                List<Map<String, String>> testQuestions = manager.getQuestionsByTestId(testId);
-                questions.addAll(testQuestions);
-                
-                // Get options for each question
-                for (Map<String, String> question : testQuestions) {
-                    int questionId = Integer.parseInt(question.get("id"));
-                    List<Map<String, String>> options = manager.getQuestionOptions(questionId);
-                    questionOptions.put(questionId, options);
-                }
-            }
-            
-            if (questions.isEmpty()) {
-                errorMessage = "No questions found for this assessment";
+            // Get options for each question
+            for (Map<String, String> question : testQuestions) {
+                int questionId = Integer.parseInt(question.get("id"));
+                List<Map<String, String>> options = manager.getQuestionOptions(questionId);
+                questionOptions.put(questionId, options);
             }
         }
+        
+        if (questions.isEmpty()) {
+            errorMessage = "No questions found for this assessment";
+        }
+    }
     } catch (NumberFormatException e) {
         errorMessage = "Invalid assessment ID format";
     } catch (Exception e) {
@@ -239,7 +242,9 @@
             
             <form id="testForm" action="submitTest.jsp" method="post">
                 <input type="hidden" name="assessment_id" value="<%= assessmentId %>">
-                <input type="hidden" name="user_id" value="<%= session.getAttribute("userId") != null ? session.getAttribute("userId") : "" %>">
+  <% if (!tests.isEmpty()) { %>
+                    <input type="hidden" name="testId" value="<%= tests.get(0).get("id") %>">
+                <% } %>                <input type="hidden" name="user_id" value="<%= session.getAttribute("userId") != null ? session.getAttribute("userId") : "" %>">
                 
                 <% for (int i = 0; i < questions.size(); i++) { 
                     Map<String, String> question = questions.get(i);

@@ -1,125 +1,166 @@
-<%@ page import="my_pack.DBConnection, my_pack.AssessmentManager, java.sql.*, java.util.*" %>
+<%@ page import="java.sql.*" %>
+<%@ page import="java.util.*" %>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+
 <%
-    // Check if user is logged in
-    Integer userId = (Integer) session.getAttribute("userId");
-    if (userId == null) {
-        response.sendRedirect(request.getContextPath() + "/login.jsp?error=session_expired");
-        return;
-    }
-
-    // Validate assessment_id parameter
-    int assessmentId;
-    try {
-        assessmentId = Integer.parseInt(request.getParameter("assessment_id"));
-    } catch (NumberFormatException e) {
-        response.sendRedirect(request.getContextPath() + "/error.jsp?message=Invalid assessment ID");
-        return;
-    }
-
-    Connection conn = null;
+    int userId = 0;
+    int testId = 0;
+    int totalQuestions = 0;
+    double totalScore = 0.0;
+    String errorMessage = null;
     int testResultId = 0;
 
     try {
-        conn = DBConnection.getConnection();
-        conn.setAutoCommit(false); // Start transaction
-
-        int totalQuestions = 0;
-        int correctAnswers = 0;
-        List<Map<String, String>> answers = new ArrayList<>();
-        AssessmentManager assessmentManager = new AssessmentManager();
-
-        Enumeration<String> paramNames = request.getParameterNames();
-        while (paramNames.hasMoreElements()) {
-            String paramName = paramNames.nextElement();
-            if (paramName.startsWith("q_")) {
-                totalQuestions++;
-                String questionIdStr = paramName.substring(2);
-
-                try {
-                    int questionId = Integer.parseInt(questionIdStr);
-                    String submittedAnswer = request.getParameter(paramName);
-
-                    boolean isCorrect = assessmentManager.checkAnswer(questionId, submittedAnswer);
-                    if (isCorrect) correctAnswers++;
-
-                    Map<String, String> answerData = new HashMap<>();
-                    answerData.put("question_id", questionIdStr);
-                    answerData.put("answer", submittedAnswer);
-                    answerData.put("is_correct", String.valueOf(isCorrect));
-                    answers.add(answerData);
-                } catch (NumberFormatException e) {
-                    System.err.println("Invalid question ID format: " + questionIdStr);
-                }
-            }
-        }
-
-        double score = totalQuestions > 0 ? (correctAnswers * 100.0) / totalQuestions : 0;
-        String status = score >= 50 ? "Pass" : "Fail";
-
-        String resultSql = "INSERT INTO test_results " +
-                         "(user_id, assessment_id, score, status) " +
-                         "VALUES (?, ?, ?, ?) RETURNING id";
-
-        try (PreparedStatement stmt = conn.prepareStatement(resultSql)) {
-            stmt.setInt(1, userId);
-            stmt.setInt(2, assessmentId);
-            stmt.setDouble(3, score);
-            stmt.setString(4, status);
-
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                testResultId = rs.getInt(1);
-            }
-        }
-
-        if (testResultId > 0) {
-            String answerSql = "INSERT INTO user_answers " +
-    "(user_id, question_id, test_result_id, submitted_answer, is_correct) " + 
-    "VALUES (?, ?, ?, ?, ?)";
-
-
-            try (PreparedStatement stmt = conn.prepareStatement(answerSql)) {
-                for (Map<String, String> answer : answers) {
-                    try {
-                        stmt.setInt(1, userId);
-                        stmt.setInt(2, Integer.parseInt(answer.get("question_id")));
-                        stmt.setInt(3, testResultId);
-                        stmt.setString(4, answer.get("answer"));
-                        stmt.setBoolean(5, Boolean.parseBoolean(answer.get("is_correct")));
-                        stmt.addBatch();
-                    } catch (NumberFormatException e) {
-                        System.err.println("Invalid question ID in answers: " + answer.get("question_id"));
-                    }
-                }
-                stmt.executeBatch();
-            }
-        }
-
-        conn.commit(); // All successful
-
-    } catch (SQLException e) {
-        if (conn != null) {
-            try {
-                conn.rollback();
-            } catch (SQLException ex) {
-                System.err.println("Error during rollback: " + ex.getMessage());
-            }
-        }
-        e.printStackTrace();
-        response.sendRedirect(request.getContextPath() + "/error.jsp?message=Database error: " + e.getMessage());
-        return;
-    } finally {
-        if (conn != null) {
-            try {
-                conn.setAutoCommit(true);
-                conn.close();
-            } catch (SQLException e) {
-                System.err.println("Error closing connection: " + e.getMessage());
-            }
-        }
+        userId = Integer.parseInt(request.getParameter("user_id"));
+        testId = Integer.parseInt(request.getParameter("testId"));
+    } catch (NumberFormatException e) {
+        errorMessage = "Invalid user ID or test ID format.";
     }
 
-    // Redirect to test result page
-    response.sendRedirect(request.getContextPath() + "/recruiter/testResult.jsp?result_id=" + testResultId);
+    Connection conn = null;
+    try {
+        if (errorMessage == null) {
+            String dbUrl = System.getenv("DB_URL") != null ? System.getenv("DB_URL") : 
+                "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
+            String dbUser = System.getenv("DB_USER") != null ? System.getenv("DB_USER") : "postgres";
+            String dbPass = System.getenv("DB_PASS") != null ? System.getenv("DB_PASS") : "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
+
+            Class.forName("org.postgresql.Driver");
+            conn = DriverManager.getConnection(dbUrl, dbUser, dbPass);
+            conn.setAutoCommit(false);
+
+            // 1. Insert into test_results
+            String insertResultSQL = "INSERT INTO test_results (user_id, test_id, assessment_id, score, status, recommendation) " +
+                                     "VALUES (?, ?, (SELECT assessment_id FROM tests WHERE id = ?), 0, 'Pending', '') RETURNING id";
+            try (PreparedStatement insertPs = conn.prepareStatement(insertResultSQL)) {
+                insertPs.setInt(1, userId);
+                insertPs.setInt(2, testId);
+                insertPs.setInt(3, testId);
+                try (ResultSet rs = insertPs.executeQuery()) {
+                    if (rs.next()) {
+                        testResultId = rs.getInt(1);
+                    } else {
+                        throw new SQLException("Failed to create test result record.");
+                    }
+                }
+            }
+
+            // 2. Fetch MCQ questions
+            String fetchQuestionsSQL = "SELECT id, weight FROM questions WHERE test_id = ? AND question_type = 'MCQ'";
+            List<Integer> questionIds = new ArrayList<>();
+            Map<Integer, Double> questionWeights = new HashMap<>();
+
+            try (PreparedStatement fetchPs = conn.prepareStatement(fetchQuestionsSQL)) {
+                fetchPs.setInt(1, testId);
+                try (ResultSet rs = fetchPs.executeQuery()) {
+                    while (rs.next()) {
+                        int questionId = rs.getInt("id");
+                        double weight = rs.getDouble("weight");
+                        questionIds.add(questionId);
+                        questionWeights.put(questionId, weight);
+                        totalQuestions++;
+                    }
+                }
+            }
+
+            // 3. Evaluate answers
+            for (int questionId : questionIds) {
+                String selectedOptionIdStr = request.getParameter("question_" + questionId);
+                Integer selectedOptionId = (selectedOptionIdStr != null && !selectedOptionIdStr.isEmpty())
+                    ? Integer.parseInt(selectedOptionIdStr) : null;
+
+                boolean isCorrect = false;
+                if (selectedOptionId != null) {
+                    String checkAnswerSQL = "SELECT is_correct FROM question_options WHERE id = ? AND question_id = ?";
+                    try (PreparedStatement checkPs = conn.prepareStatement(checkAnswerSQL)) {
+                        checkPs.setInt(1, selectedOptionId);
+                        checkPs.setInt(2, questionId);
+                        try (ResultSet rs = checkPs.executeQuery()) {
+                            if (rs.next()) {
+                                isCorrect = rs.getBoolean("is_correct");
+                            }
+                        }
+                    }
+                }
+
+                // Insert into answers table
+                String insertAnswerSQL = "INSERT INTO user_answers (test_result_id, question_id, submitted_answer, is_correct) VALUES (?, ?, ?, ?)";
+                try (PreparedStatement answerPs = conn.prepareStatement(insertAnswerSQL)) {
+                    answerPs.setInt(1, testResultId);
+                    answerPs.setInt(2, questionId);
+                    if (selectedOptionId != null) {
+                        answerPs.setInt(3, selectedOptionId);
+                    } else {
+                        answerPs.setNull(3, java.sql.Types.INTEGER);
+                    }
+                    answerPs.setBoolean(4, isCorrect);
+                    answerPs.executeUpdate();
+                }
+
+                // Add score if correct
+                if (isCorrect) {
+                    totalScore += questionWeights.getOrDefault(questionId, 0.0);
+                }
+            }
+
+            // 4. Update test_result
+            String recommendation = (totalScore >= 50) ? "Pass" : "Fail";
+            String updateResultSQL = "UPDATE test_results SET score = ?, status = 'Completed', recommendation = ? WHERE id = ?";
+            try (PreparedStatement updatePs = conn.prepareStatement(updateResultSQL)) {
+                updatePs.setDouble(1, totalScore);
+                updatePs.setString(2, recommendation);
+                updatePs.setInt(3, testResultId);
+                updatePs.executeUpdate();
+            }
+
+            conn.commit();
+        }
+    } catch (Exception e) {
+        if (conn != null) try { conn.rollback(); } catch (SQLException ex) {}
+        errorMessage = "An error occurred: " + e.getMessage();
+        e.printStackTrace();
+    } finally {
+        if (conn != null) try { conn.close(); } catch (Exception e) {}
+    }
 %>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Submission Result</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <% if (errorMessage != null) { %>
+            <h2 class="error">Submission Error</h2>
+            <p><%= errorMessage %></p>
+            <a href="javascript:history.back()">Go Back</a>
+        <% } else { %>
+            <h2 class="success">Test Submitted Successfully!</h2>
+            <p><strong>Score:</strong> <%= totalScore %></p>
+            <p><strong>Percentage:</strong> 
+                <%= totalQuestions > 0 ? String.format("%.2f", (totalScore / totalQuestions) * 100) : "0" %>%</p>
+            <a href="results.jsp?result_id=<%= testResultId %>">View Detailed Results</a>
+        <% } %>
+    </div>
+
+</body>
+</html>
