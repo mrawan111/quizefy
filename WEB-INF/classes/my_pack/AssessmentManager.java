@@ -43,21 +43,22 @@ private static final String password = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
         return assessments;
     }
 
-    public boolean addAssessment(String name, String description) {
-        String query = "INSERT INTO assessments (name, description) VALUES (?, ?)";
-        try (Connection conn = connect();
-             PreparedStatement ps = conn.prepareStatement(query)) {
-            
-            ps.setString(1, name);
-            ps.setString(2, description);
-            int rowsAffected = ps.executeUpdate();
-            return rowsAffected > 0;
-        } catch (SQLException e) {
-            System.err.println("Error adding assessment: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
+ public boolean addAssessment(String name, String description, int userId) {
+    String query = "INSERT INTO assessments (name, description, user_id) VALUES (?, ?, ?)";
+    try (Connection conn = connect();
+         PreparedStatement ps = conn.prepareStatement(query)) {
+        
+        ps.setString(1, name);
+        ps.setString(2, description);
+        ps.setInt(3, userId);
+        int rowsAffected = ps.executeUpdate();
+        return rowsAffected > 0;
+    } catch (SQLException e) {
+        System.err.println("Error adding assessment: " + e.getMessage());
+        e.printStackTrace();
+        return false;
     }
+}
 
     public boolean updateAssessment(int id, String name, String description) {
         String query = "UPDATE assessments SET name = ?, description = ? WHERE id = ?";
@@ -115,7 +116,32 @@ private static final String password = "XpPVJptmTjhLhoaJwkDokjThDkkYuJPV";
     }
     return assessments;
 }
-  
+  public List<Map<String, String>> searchAdminAssessmentsByName(String searchTerm) {
+    List<Map<String, String>> assessments = new ArrayList<>();
+    String query = "SELECT a.id, a.name, a.description " +
+                   "FROM assessments a " +
+                   "JOIN users u ON a.user_id = u.id " +
+                   "WHERE u.role = 'admin' AND a.name LIKE ?";
+    
+    try (Connection conn = DBConnection.getConnection();
+         PreparedStatement pstmt = conn.prepareStatement(query)) {
+        
+        pstmt.setString(1, "%" + searchTerm + "%");
+        ResultSet rs = pstmt.executeQuery();
+        
+        while (rs.next()) {
+            Map<String, String> assessment = new HashMap<>();
+            assessment.put("id", rs.getString("id"));
+            assessment.put("name", rs.getString("name"));
+            assessment.put("description", rs.getString("description"));
+            assessments.add(assessment);
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+    
+    return assessments;
+}
 
     public Map<String, String> getAssessmentById(int id) {
         Map<String, String> assessment = new HashMap<>();
@@ -261,6 +287,30 @@ public List<Map<String, String>> getQuestionsByTestId(int testId) {
         e.printStackTrace();
     }
     return false;
+}
+public List<Map<String, String>> getAdminCreatedAssessments() {
+    List<Map<String, String>> assessments = new ArrayList<>();
+    String query = "SELECT a.id, a.name, a.description " +
+                   "FROM assessments a " +
+                   "JOIN users u ON a.user_id = u.id " +
+                   "WHERE u.role = 'admin'";
+    
+    try (Connection conn = DBConnection.getConnection();
+         Statement stmt = conn.createStatement();
+         ResultSet rs = stmt.executeQuery(query)) {
+        
+        while (rs.next()) {
+            Map<String, String> assessment = new HashMap<>();
+            assessment.put("id", rs.getString("id"));
+            assessment.put("name", rs.getString("name"));
+            assessment.put("description", rs.getString("description"));
+            assessments.add(assessment);
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+    
+    return assessments;
 }
 // Add to AssessmentManager.java
 public String generateShareableLink(int assessmentId) {

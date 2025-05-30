@@ -330,9 +330,9 @@
         
         // Get assessments from database
         AssessmentManager assessmentManager = new AssessmentManager();
-        List<Map<String, String>> assessments = isSearching ? 
-            assessmentManager.searchAssessmentsByName(searchQuery.trim()) : 
-            assessmentManager.getAllAssessments();
+          List<Map<String, String>> assessments = isSearching ? 
+        assessmentManager.searchAdminAssessmentsByName(searchQuery.trim()) : 
+        assessmentManager.getAdminCreatedAssessments();
         
         // Get test history from database
         List<Map<String, String>> testHistory = new java.util.ArrayList<>();

@@ -3,6 +3,11 @@
 
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%
+    Integer userId = (Integer) session.getAttribute("userId");
+    if (userId == null) {
+        response.sendRedirect("login.jsp");
+        return;
+    }
     AssessmentManager manager = new AssessmentManager();
     String error = null;
     String success = null;
@@ -11,16 +16,16 @@
     if ("POST".equalsIgnoreCase(request.getMethod())) {
         String action = request.getParameter("action");
         
-        if ("add".equals(action)) {
-            String name = request.getParameter("name");
-            String description = request.getParameter("description");
-            
-            if (manager.addAssessment(name, description)) {
-                success = "Assessment added successfully!";
-            } else {
-                error = "Failed to add assessment";
-            }
-        } 
+       if ("add".equals(action)) {
+        String name = request.getParameter("name");
+        String description = request.getParameter("description");
+        
+        if (manager.addAssessment(name, description, userId)) {
+            success = "Assessment added successfully!";
+        } else {
+            error = "Failed to add assessment";
+        }
+    }
         else if ("update".equals(action)) {
             String idStr = request.getParameter("id");
             String name = request.getParameter("name");
