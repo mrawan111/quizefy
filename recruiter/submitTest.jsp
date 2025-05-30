@@ -5,25 +5,30 @@
 <%
     // Initialize variables
     int userId = 0;
-    int testId = 0;
     int assessmentId = 0;
-    int totalQuestions = 0;
+    String[] testIds = null;
     double totalScore = 0.0;
+    int totalQuestions = 0;
     String errorMessage = null;
-    int testResultId = 0;
+    List<Integer> testResultIds = new ArrayList<>();
 
     // Get parameters from request
     try {
         userId = Integer.parseInt(request.getParameter("user_id"));
-        testId = Integer.parseInt(request.getParameter("testId"));
         assessmentId = Integer.parseInt(request.getParameter("assessment_id"));
+        String testIdsParam = request.getParameter("testIds");
+        if (testIdsParam != null && !testIdsParam.isEmpty()) {
+            testIds = testIdsParam.split(",");
+        } else {
+            errorMessage = "Test IDs are missing";
+        }
     } catch (NumberFormatException e) {
-        errorMessage = "Invalid user ID, test ID, or assessment ID format.";
+        errorMessage = "Invalid user ID or assessment ID format: " + e.getMessage();
     }
 
     Connection conn = null;
     try {
-        if (errorMessage == null) {
+        if (errorMessage == null && testIds != null) {
             // Database connection setup
             String dbUrl = System.getenv("DB_URL") != null ? System.getenv("DB_URL") : 
                 "jdbc:postgresql://turntable.proxy.rlwy.net:13001/railway";
@@ -34,108 +39,118 @@
             conn = DriverManager.getConnection(dbUrl, dbUser, dbPass);
             conn.setAutoCommit(false);
 
-            // 1. Insert into test_results
-            String insertResultSQL = "INSERT INTO test_results (user_id, test_id, assessment_id, score, status, recommendation) " +
-                                   "VALUES (?, ?, ?, 0, 'Pending', '') RETURNING id";
-            try (PreparedStatement insertPs = conn.prepareStatement(insertResultSQL)) {
-                insertPs.setInt(1, userId);
-                insertPs.setInt(2, testId);
-                insertPs.setInt(3, assessmentId);
-                try (ResultSet rs = insertPs.executeQuery()) {
-                    if (rs.next()) {
-                        testResultId = rs.getInt(1);
-                    } else {
-                        throw new SQLException("Failed to create test result record.");
+            // Process each test
+            for (String testIdStr : testIds) {
+                int testId = Integer.parseInt(testIdStr);
+                int testResultId = 0;
+                double testScore = 0.0;
+                int testQuestions = 0;
+
+                // 1. Insert into test_results
+                String insertResultSQL = "INSERT INTO test_results (user_id, test_id, assessment_id, score, status, recommendation) " +
+                                       "VALUES (?, ?, ?, 0, 'Pending', '') RETURNING id";
+                try (PreparedStatement insertPs = conn.prepareStatement(insertResultSQL)) {
+                    insertPs.setInt(1, userId);
+                    insertPs.setInt(2, testId);
+                    insertPs.setInt(3, assessmentId);
+                    try (ResultSet rs = insertPs.executeQuery()) {
+                        if (rs.next()) {
+                            testResultId = rs.getInt(1);
+                            testResultIds.add(testResultId);
+                        } else {
+                            throw new SQLException("Failed to create test result record.");
+                        }
                     }
                 }
-            }
 
-            // 2. Fetch all questions (MCQ and text)
-            String fetchQuestionsSQL = "SELECT id, weight, question_type FROM questions WHERE test_id = ?";
-            List<Integer> questionIds = new ArrayList<>();
-            Map<Integer, Double> questionWeights = new HashMap<>();
-            Map<Integer, String> questionTypes = new HashMap<>();
+                // 2. Fetch all questions for this test
+                String fetchQuestionsSQL = "SELECT id, weight, question_type FROM questions WHERE test_id = ?";
+                List<Integer> questionIds = new ArrayList<>();
+                Map<Integer, Double> questionWeights = new HashMap<>();
+                Map<Integer, String> questionTypes = new HashMap<>();
 
-            try (PreparedStatement fetchPs = conn.prepareStatement(fetchQuestionsSQL)) {
-                fetchPs.setInt(1, testId);
-                try (ResultSet rs = fetchPs.executeQuery()) {
-                    while (rs.next()) {
-                        int questionId = rs.getInt("id");
-                        double weight = rs.getDouble("weight");
-                        String questionType = rs.getString("question_type");
-                        questionIds.add(questionId);
-                        questionWeights.put(questionId, weight);
-                        questionTypes.put(questionId, questionType);
-                        totalQuestions++;
+                try (PreparedStatement fetchPs = conn.prepareStatement(fetchQuestionsSQL)) {
+                    fetchPs.setInt(1, testId);
+                    try (ResultSet rs = fetchPs.executeQuery()) {
+                        while (rs.next()) {
+                            int questionId = rs.getInt("id");
+                            double weight = rs.getDouble("weight");
+                            String questionType = rs.getString("question_type");
+                            questionIds.add(questionId);
+                            questionWeights.put(questionId, weight);
+                            questionTypes.put(questionId, questionType);
+                            testQuestions++;
+                            totalQuestions++;
+                        }
                     }
                 }
-            }
 
-            // 3. Evaluate answers
-            for (int questionId : questionIds) {
-                String questionType = questionTypes.get(questionId);
-                boolean isCorrect = false;
-                String submittedAnswer = null;
+                // 3. Evaluate answers for this test
+                for (int questionId : questionIds) {
+                    String questionType = questionTypes.get(questionId);
+                    boolean isCorrect = false;
+                    String submittedAnswer = null;
 
-                if ("MCQ".equals(questionType)) {
-                    // Handle MCQ questions
-                    String selectedOptionIdStr = request.getParameter("q_" + questionId);
-                    Integer selectedOptionId = (selectedOptionIdStr != null && !selectedOptionIdStr.isEmpty())
-                        ? Integer.parseInt(selectedOptionIdStr) : null;
+                    if ("MCQ".equals(questionType)) {
+                        // Handle MCQ questions
+                        String selectedOptionIdStr = request.getParameter("q_" + questionId);
+                        Integer selectedOptionId = (selectedOptionIdStr != null && !selectedOptionIdStr.isEmpty())
+                            ? Integer.parseInt(selectedOptionIdStr) : null;
 
-                    if (selectedOptionId != null) {
-                        submittedAnswer = selectedOptionId.toString();
-                        String checkAnswerSQL = "SELECT is_correct FROM question_options WHERE id = ? AND question_id = ?";
-                        try (PreparedStatement checkPs = conn.prepareStatement(checkAnswerSQL)) {
-                            checkPs.setInt(1, selectedOptionId);
-                            checkPs.setInt(2, questionId);
-                            try (ResultSet rs = checkPs.executeQuery()) {
-                                if (rs.next()) {
-                                    isCorrect = rs.getBoolean("is_correct");
+                        if (selectedOptionId != null) {
+                            submittedAnswer = selectedOptionId.toString();
+                            String checkAnswerSQL = "SELECT is_correct FROM question_options WHERE id = ? AND question_id = ?";
+                            try (PreparedStatement checkPs = conn.prepareStatement(checkAnswerSQL)) {
+                                checkPs.setInt(1, selectedOptionId);
+                                checkPs.setInt(2, questionId);
+                                try (ResultSet rs = checkPs.executeQuery()) {
+                                    if (rs.next()) {
+                                        isCorrect = rs.getBoolean("is_correct");
+                                    }
                                 }
                             }
                         }
-                    }
-                } else {
-                    // Handle text questions
-                    submittedAnswer = request.getParameter("q_" + questionId);
-                    // For text questions, you might want to add manual grading logic here
-                    // Currently marking as incorrect by default
-                    isCorrect = false;
-                }
-
-                // Insert into answers table
-                String insertAnswerSQL = "INSERT INTO user_answers (test_result_id, question_id, submitted_answer, is_correct) VALUES (?, ?, ?, ?)";
-                try (PreparedStatement answerPs = conn.prepareStatement(insertAnswerSQL)) {
-                    answerPs.setInt(1, testResultId);
-                    answerPs.setInt(2, questionId);
-                    if (submittedAnswer != null && !submittedAnswer.isEmpty()) {
-                        answerPs.setString(3, submittedAnswer);
                     } else {
-                        answerPs.setNull(3, java.sql.Types.VARCHAR);
+                        // Handle text questions
+                        submittedAnswer = request.getParameter("q_" + questionId);
+                        isCorrect = false; // Default for text questions
                     }
-                    answerPs.setBoolean(4, isCorrect);
-                    answerPs.executeUpdate();
+
+                    // Insert into answers table
+                    String insertAnswerSQL = "INSERT INTO user_answers (test_result_id, question_id, submitted_answer, is_correct) VALUES (?, ?, ?, ?)";
+                    try (PreparedStatement answerPs = conn.prepareStatement(insertAnswerSQL)) {
+                        answerPs.setInt(1, testResultId);
+                        answerPs.setInt(2, questionId);
+                        if (submittedAnswer != null && !submittedAnswer.isEmpty()) {
+                            answerPs.setString(3, submittedAnswer);
+                        } else {
+                            answerPs.setNull(3, java.sql.Types.VARCHAR);
+                        }
+                        answerPs.setBoolean(4, isCorrect);
+                        answerPs.executeUpdate();
+                    }
+
+                    // Add score if correct
+                    if (isCorrect) {
+                        double weight = questionWeights.getOrDefault(questionId, 0.0);
+                        testScore += weight;
+                        totalScore += weight;
+                    }
                 }
 
-                // Add score if correct
-                if (isCorrect) {
-                    totalScore += questionWeights.getOrDefault(questionId, 0.0);
+                // 4. Update test_result with final score and recommendation
+                double testPercentage = (testQuestions > 0) ? (testScore / testQuestions) * 100 : 0;
+                String testRecommendation = (testPercentage >= 50) ? "Pass" : "Fail";
+                String status = "Completed";
+                
+                String updateResultSQL = "UPDATE test_results SET score = ?, status = ?, recommendation = ? WHERE id = ?";
+                try (PreparedStatement updatePs = conn.prepareStatement(updateResultSQL)) {
+                    updatePs.setDouble(1, testScore);
+                    updatePs.setString(2, status);
+                    updatePs.setString(3, testRecommendation);
+                    updatePs.setInt(4, testResultId);
+                    updatePs.executeUpdate();
                 }
-            }
-
-            // 4. Update test_result with final score and recommendation
-            double percentage = (totalQuestions > 0) ? (totalScore / totalQuestions) * 100 : 0;
-            String recommendation = (percentage >= 50) ? "Pass" : "Fail";
-            String status = "Completed";
-            
-            String updateResultSQL = "UPDATE test_results SET score = ?, status = ?, recommendation = ? WHERE id = ?";
-            try (PreparedStatement updatePs = conn.prepareStatement(updateResultSQL)) {
-                updatePs.setDouble(1, totalScore);
-                updatePs.setString(2, status);
-                updatePs.setString(3, recommendation);
-                updatePs.setInt(4, testResultId);
-                updatePs.executeUpdate();
             }
 
             conn.commit();
@@ -155,126 +170,212 @@
     <meta charset="UTF-8">
     <title>Test Submission Result</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f7fa;
-            padding: 0;
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2980b9;
+            --light-gray: #f5f5f5;
+            --medium-gray: #e0e0e0;
+            --dark-gray: #333;
+            --white: #ffffff;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+        }
+        
+        * {
             margin: 0;
-            color: #333;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
+        
+        body {
+            background-color: var(--light-gray);
+            color: var(--dark-gray);
+            line-height: 1.6;
+            padding: 20px;
+        }
+        
         .container {
-            background: white;
             max-width: 800px;
-            margin: 40px auto;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-            text-align: center;
-        }
-        h2 {
-            margin-top: 0;
-            font-size: 28px;
-        }
-        .success { color: #27ae60; }
-        .error { color: #e74c3c; }
-        .result-card {
+            margin: 0 auto;
+            background-color: var(--white);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             padding: 30px;
-            border-radius: 10px;
-            margin: 30px 0;
-            background-color: #f8f9fa;
-            border: 1px solid #e0e0e0;
         }
-        .pass {
-            background-color: #e8f8f0;
-            border-left: 6px solid #27ae60;
+        
+        .result-header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--medium-gray);
         }
-        .fail {
-            background-color: #fdecea;
-            border-left: 6px solid #e74c3c;
+        
+        .result-title {
+            color: var(--primary-color);
+            margin-bottom: 10px;
+            font-size: 24px;
         }
+        
+        .result-card {
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            border-left: 4px solid;
+        }
+        
+        .result-card.pass {
+            border-left-color: var(--success-color);
+            background-color: rgba(46, 204, 113, 0.05);
+        }
+        
+        .result-card.fail {
+            border-left-color: var(--danger-color);
+            background-color: rgba(231, 76, 60, 0.05);
+        }
+        
         .score-display {
             font-size: 36px;
             font-weight: bold;
+            text-align: center;
             margin: 20px 0;
-            color: #2c3e50;
         }
+        
+        .pass .score-display {
+            color: var(--success-color);
+        }
+        
+        .fail .score-display {
+            color: var(--danger-color);
+        }
+        
         .percentage {
-            font-size: 28px;
-            margin: 15px 0;
-            font-weight: 600;
-        }
-        .status {
             font-size: 24px;
+            font-weight: 600;
+            text-align: center;
+            margin: 15px 0;
+        }
+        
+        .status {
+            font-size: 20px;
             font-weight: bold;
-            margin: 20px auto;
-            padding: 12px 24px;
+            text-align: center;
+            margin: 20px 0;
+            padding: 10px;
             border-radius: 6px;
             display: inline-block;
-            width: fit-content;
+            width: 100%;
         }
+        
         .status-pass {
-            background-color: #27ae60;
+            background-color: var(--success-color);
             color: white;
         }
+        
         .status-fail {
-            background-color: #e74c3c;
+            background-color: var(--danger-color);
             color: white;
         }
+        
         .message {
-            font-size: 18px;
-            margin: 15px 0;
+            font-size: 16px;
+            text-align: center;
+            margin: 20px 0;
             line-height: 1.6;
         }
+        
+        .details {
+            margin-top: 30px;
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--medium-gray);
+        }
+        
+        .detail-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .detail-label {
+            font-weight: 600;
+            color: #666;
+        }
+        
+        .detail-value {
+            font-weight: 500;
+        }
+        
         .btn {
             display: inline-block;
-            padding: 12px 28px;
-            background-color: #3498db;
+            padding: 12px 24px;
+            background-color: var(--primary-color);
             color: white;
             text-decoration: none;
             border-radius: 6px;
-            margin-top: 25px;
-            transition: all 0.3s ease;
+            margin-top: 20px;
             font-size: 16px;
-            font-weight: 600;
+            font-weight: 500;
             border: none;
             cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            width: 100%;
         }
+        
         .btn:hover {
-            background-color: #2980b9;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: var(--secondary-color);
         }
-        .details {
-            margin-top: 30px;
-            text-align: left;
-            border-top: 1px solid #eee;
-            padding-top: 20px;
+        
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--danger-color);
         }
-        .detail-item {
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-        }
-        .detail-label {
-            font-weight: 600;
-            color: #7f8c8d;
-        }
-        .detail-value {
-            font-weight: 500;
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            .score-display {
+                font-size: 28px;
+            }
+            
+            .percentage {
+                font-size: 20px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <% if (errorMessage != null) { %>
-            <h2 class="error">Submission Error</h2>
-            <p><%= errorMessage %></p>
-            <a href="javascript:history.back()" class="btn">Go Back</a>
+            <div class="error-message">
+                <h2>Submission Error</h2>
+                <p><%= errorMessage %></p>
+                <a href="javascript:history.back()" class="btn">Go Back</a>
+            </div>
         <% } else { 
             double percentage = (totalQuestions > 0) ? (totalScore / totalQuestions) * 100 : 0;
             boolean passed = percentage >= 50;
         %>
-            <h2 class="success">Test Submitted Successfully!</h2>
+            <div class="result-header">
+                <h1 class="result-title">Assessment Submitted</h1>
+            </div>
             
             <div class="result-card <%= passed ? "pass" : "fail" %>">
                 <div class="score-display">
@@ -302,12 +403,12 @@
                     <span class="detail-value"><%= assessmentId %></span>
                 </div>
                 <div class="detail-item">
-                    <span class="detail-label">Test ID:</span>
-                    <span class="detail-value"><%= testId %></span>
+                    <span class="detail-label">Tests Completed:</span>
+                    <span class="detail-value"><%= testIds != null ? testIds.length : 0 %></span>
                 </div>
                 <div class="detail-item">
-                    <span class="detail-label">Result ID:</span>
-                    <span class="detail-value"><%= testResultId %></span>
+                    <span class="detail-label">Result IDs:</span>
+                    <span class="detail-value"><%= String.join(", ", testResultIds.stream().map(String::valueOf).toArray(String[]::new)) %></span>
                 </div>
                 <div class="detail-item">
                     <span class="detail-label">Date:</span>
@@ -315,7 +416,7 @@
                 </div>
             </div>
             
-            <a href="results.jsp?result_id=<%= testResultId %>" class="btn">View Detailed Results</a>
+            <a href="results.jsp?result_id=<%= !testResultIds.isEmpty() ? testResultIds.get(0) : 0 %>" class="btn">View Detailed Results</a>
         <% } %>
     </div>
 </body>

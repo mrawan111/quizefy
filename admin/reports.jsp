@@ -10,17 +10,17 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 
 <%
-    int assessmentId = request.getParameter("assessment_id") != null ? 
+    int assessmentId = request.getParameter("assessment_id") != null && !request.getParameter("assessment_id").isEmpty() ? 
                       Integer.parseInt(request.getParameter("assessment_id")) : 0;
-    int userId = request.getParameter("user_id") != null ? 
+    int userId = request.getParameter("user_id") != null && !request.getParameter("user_id").isEmpty() ? 
                 Integer.parseInt(request.getParameter("user_id")) : 0;
-    String dateRange = request.getParameter("date_range");
+    String dateRange = request.getParameter("date_range") != null ? request.getParameter("date_range") : "";
     
     List<TestResult> results = ReportService.getFilteredResults(assessmentId, userId, dateRange);
     ChartData chartData = ReportService.getChartData(assessmentId, userId, dateRange);
     List<Assessment> assessments = ReportService.getAllAssessments();
     List<User> users = ReportService.getAllUsers();
-    List<Map<String, Object>> trendData = ReportService.getPerformanceTrend(assessmentId, userId, "week");
+    List<Map<String, Object>> trendData = ReportService.getPerformanceTrend(assessmentId, userId, dateRange.isEmpty() ? "week" : dateRange);
 %>
 
 <!DOCTYPE html>
@@ -216,10 +216,17 @@
         .chart-box {
             flex: 1;
             min-width: 300px;
-            padding: 15px;
+            height: 350px;
+            padding: 20px;
             background: var(--white);
             border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            position: relative;
+        }
+        
+        .chart-box canvas {
+            width: 100% !important;
+            height: 100% !important;
         }
         
         .score-high {
@@ -244,6 +251,16 @@
         .status-inactive {
             color: var(--danger-color);
         }
+
+        @media (max-width: 768px) {
+            .chart-container {
+                flex-direction: column;
+            }
+            
+            .chart-box {
+                min-width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -251,11 +268,11 @@
         <div class="sidebar">
             <h2>Quizefy System</h2>
             <ul class="sidebar-menu">
-                <li><a href="index.jsp" class="active">Dashboard</a></li>
+                <li><a href="index.jsp">Dashboard</a></li>
                 <li><a href="assessments.jsp">Manage Assessments</a></li>
                 <li><a href="manageTests.jsp">Manage Tests</a></li>
                 <li><a href="users.jsp">Manage Users</a></li>
-                <li><a href="reports.jsp">Performance Reports</a></li>
+                <li><a href="reports.jsp" class="active">Performance Reports</a></li>
                 <li><a href="questions.jsp">Question Bank</a></li>
             </ul>
         </div>
@@ -348,7 +365,7 @@
                         <tr>
                             <td><%= result.getUserName() != null ? result.getUserName() : "N/A" %></td>
                             <td><%= result.getAssessmentName() != null ? result.getAssessmentName() : "N/A" %></td>
-                            <td><%= result.getCreatedDate() != null ? new java.text.SimpleDateFormat("MM/dd/yyyy").format(result.getCreatedDate()) : "N/A" %></td>
+                            <td><%= result.getCreatedDate() != null ? new SimpleDateFormat("MM/dd/yyyy").format(result.getCreatedDate()) : "N/A" %></td>
                             <td class="<%= scoreClass %>">
                                 <%= String.format("%.0f%%", result.getScore()) %>
                             </td>
@@ -370,114 +387,163 @@
     </div>
 
     <script>
-        // Score Distribution Chart
-        const scoreCtx = document.getElementById('scoreDistributionChart');
-        new Chart(scoreCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['High (≥80%)', 'Medium (50-79%)', 'Low (<50%)'],
-                datasets: [{
-                    data: [
-                        <%= chartData.getHighScore() %>, 
-                        <%= chartData.getMediumScore() %>, 
-                        <%= chartData.getLowScore() %>
-                    ],
-                    backgroundColor: [
-                        '#2ecc71', // green
-                        '#f39c12', // orange
-                        '#e74c3c'  // red
-                    ],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    },
-                    title: {
-                        display: true,
-                        text: 'Score Distribution',
-                        font: {
-                            size: 16
-                        }
-                    }
-                }
-            }
-        });
-
-        // Performance Trend Chart
-        const trendCtx = document.getElementById('performanceTrendChart');
-        new Chart(trendCtx, {
-            type: 'line',
-            data: {
-                labels: [<%= getTrendLabels(trendData) %>],
-                datasets: [{
-                    label: 'Average Score',
-                    data: [<%= getTrendValues(trendData) %>],
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Performance Trend',
-                        font: {
-                            size: 16
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        min: 0,
-                        max: 100,
-                        ticks: {
-                            callback: function(value) {
-                                return value + '%';
+        // Wait for DOM to be fully loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize charts only if we have data
+            <% if (chartData != null && trendData != null && !trendData.isEmpty()) { %>
+                // Score Distribution Chart
+                const scoreCtx = document.getElementById('scoreDistributionChart');
+                if (scoreCtx) {
+                    new Chart(scoreCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['High (≥80%)', 'Medium (50-79%)', 'Low (<50%)'],
+                            datasets: [{
+                                data: [
+                                    <%= chartData.getHighScore() %>, 
+                                    <%= chartData.getMediumScore() %>, 
+                                    <%= chartData.getLowScore() %>
+                                ],
+                                backgroundColor: [
+                                    '#2ecc71', // green
+                                    '#f39c12', // orange
+                                    '#e74c3c'  // red
+                                ],
+                                borderColor: '#fff',
+                                borderWidth: 2,
+                                hoverOffset: 10
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                    labels: {
+                                        padding: 20,
+                                        font: {
+                                            size: 14
+                                        },
+                                        usePointStyle: true,
+                                        pointStyle: 'circle'
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Score Distribution',
+                                    font: {
+                                        size: 16,
+                                        weight: 'bold'
+                                    },
+                                    padding: {
+                                        top: 10,
+                                        bottom: 20
+                                    }
+                                }
                             }
                         }
-                    }
+                    });
                 }
-            }
+
+                // Performance Trend Chart
+                const trendCtx = document.getElementById('performanceTrendChart');
+                if (trendCtx) {
+                    new Chart(trendCtx, {
+                        type: 'line',
+                        data: {
+                            labels: <%= getTrendLabels(trendData) %>,
+                            datasets: [{
+                                label: 'Average Score',
+                                data: <%= getTrendValues(trendData) %>,
+                                borderColor: '#3498db',
+                                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                                borderWidth: 3,
+                                pointBackgroundColor: '#3498db',
+                                pointRadius: 5,
+                                pointHoverRadius: 7,
+                                fill: true,
+                                tension: 0.3
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Performance Trend',
+                                    font: {
+                                        size: 16,
+                                        weight: 'bold'
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    min: 0,
+                                    max: 100,
+                                    ticks: {
+                                        callback: function(value) {
+                                            return value + '%';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            <% } %>
+
+            // Auto-submit form when filters change
+            document.getElementById('reportModule').addEventListener('change', function() {
+                this.form.submit();
+            });
+            
+            document.getElementById('reportUser').addEventListener('change', function() {
+                this.form.submit();
+            });
+            
+            document.getElementById('reportDate').addEventListener('change', function() {
+                this.form.submit();
+            });
         });
 
         function viewDetails(resultId) {
-            window.location.href = 'testResultDetails.jsp?id=' + resultId;
+            window.location.href = 'testResultDetails.jsp?result_id=' + resultId;
         }
-        
-      
     </script>
 </body>
 </html>
 
 <%!
     private String getTrendLabels(List<Map<String, Object>> trendData) {
-        StringBuilder labels = new StringBuilder();
+        if (trendData == null || trendData.isEmpty()) {
+            return "[]";
+        }
+        
+        StringBuilder labels = new StringBuilder("[");
         SimpleDateFormat sdf = new SimpleDateFormat("MMM dd");
         for (Map<String, Object> data : trendData) {
-            if (labels.length() > 0) labels.append(", ");
-            labels.append("'").append(sdf.format(data.get("week"))).append("'");
+            if (labels.length() > 1) labels.append(", ");
+            labels.append("\"").append(sdf.format(data.get("week"))).append("\"");
         }
+        labels.append("]");
         return labels.toString();
     }
 
     private String getTrendValues(List<Map<String, Object>> trendData) {
-        StringBuilder values = new StringBuilder();
+        if (trendData == null || trendData.isEmpty()) {
+            return "[]";
+        }
+        
+        StringBuilder values = new StringBuilder("[");
         for (Map<String, Object> data : trendData) {
-            if (values.length() > 0) values.append(", ");
+            if (values.length() > 1) values.append(", ");
             values.append(data.get("avg_score"));
         }
+        values.append("]");
         return values.toString();
     }
 %>

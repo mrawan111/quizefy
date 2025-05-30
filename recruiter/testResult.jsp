@@ -6,9 +6,7 @@
     Map<String, String> result = new HashMap<>();
     List<Map<String, String>> answers = new ArrayList<>();
     
-    String resultSql = "SELECT r.score, r.status, a.name as assessment_name, " +
-                      "(SELECT COUNT(*) FROM user_answers WHERE test_result_id = r.id AND is_correct = true) as correct_count, " +
-                      "(SELECT COUNT(*) FROM user_answers WHERE test_result_id = r.id) as total_questions " +
+    String resultSql = "SELECT r.score, r.status, r.recommendation, a.name as assessment_name " +
                       "FROM test_results r " +
                       "JOIN assessments a ON r.assessment_id = a.id " +
                       "WHERE r.id = ?";
@@ -16,8 +14,7 @@
     String answersSql = "SELECT q.text, ua.submitted_answer, ua.is_correct, q.question_type " +
                        "FROM user_answers ua " +
                        "JOIN questions q ON ua.question_id = q.id " +
-                       "WHERE ua.test_result_id = ? " +
-                       "ORDER BY ua.id";
+                       "WHERE ua.test_result_id = ?";
     
     try (Connection conn = DBConnection.getConnection()) {
         // Get test result
@@ -27,9 +24,8 @@
             if (rs.next()) {
                 result.put("score", rs.getString("score"));
                 result.put("status", rs.getString("status"));
+                result.put("recommendation", rs.getString("recommendation"));
                 result.put("assessment_name", rs.getString("assessment_name"));
-                result.put("correct_count", rs.getString("correct_count"));
-                result.put("total_questions", rs.getString("total_questions"));
             }
         }
         
@@ -49,7 +45,7 @@
     } catch (SQLException e) {
         e.printStackTrace();
     }
-%>  
+%>
 
 <!DOCTYPE html>
 <html lang="en">
@@ -64,132 +60,204 @@
             --dark-gray: #333;
             --white: #ffffff;
             --success-color: #2ecc71;
+            --warning-color: #f39c12;
             --danger-color: #e74c3c;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
         body {
             background-color: var(--light-gray);
             color: var(--dark-gray);
             line-height: 1.6;
-            padding: 0;
-            margin: 0;
+            padding: 20px;
         }
         
         .container {
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
+            background-color: var(--white);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
         }
         
         .result-header {
-            background-color: var(--white);
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
             text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--medium-gray);
         }
         
         .result-title {
             color: var(--primary-color);
             margin-bottom: 10px;
+            font-size: 24px;
         }
         
         .result-score {
-            font-size: 2.5rem;
+            font-size: 36px;
             font-weight: bold;
+            text-align: center;
             margin: 20px 0;
             color: <%= "Pass".equals(result.get("status")) ? "var(--success-color)" : "var(--danger-color)" %>;
         }
         
         .result-status {
-            font-size: 1.2rem;
+            font-size: 20px;
             font-weight: 600;
+            text-align: center;
             margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 6px;
+            background-color: <%= "Pass".equals(result.get("status")) ? "var(--success-color)" : "var(--danger-color)" %>;
+            color: white;
         }
         
         .result-details {
             display: flex;
             justify-content: space-around;
             margin-top: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
         
         .detail-item {
             text-align: center;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            flex: 1;
+            min-width: 120px;
         }
         
         .detail-label {
-            font-size: 0.9rem;
-            color: var(--dark-gray);
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
         }
         
         .detail-value {
             font-weight: 600;
-            margin-top: 5px;
         }
         
         .answers-summary {
-            background-color: var(--white);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-top: 30px;
+        }
+        
+        .answers-title {
+            color: var(--primary-color);
             margin-bottom: 20px;
+            font-size: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--medium-gray);
         }
         
         .answer-item {
             margin-bottom: 20px;
-            padding: 15px;
-            border-bottom: 1px solid var(--medium-gray);
+            padding: 20px;
+            border-radius: 8px;
+            background-color: var(--white);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid;
         }
         
         .answer-item.true {
-            background-color: rgba(46, 204, 113, 0.1);
+            border-left-color: var(--success-color);
+            background-color: rgba(46, 204, 113, 0.05);
         }
         
         .answer-item.false {
-            background-color: rgba(231, 76, 60, 0.1);
+            border-left-color: var(--danger-color);
+            background-color: rgba(231, 76, 60, 0.05);
         }
         
         .question-text {
             font-weight: 600;
             margin-bottom: 10px;
+            font-size: 16px;
         }
         
         .user-answer {
-            margin-bottom: 5px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            font-size: 14px;
         }
         
         .correctness {
             font-weight: 600;
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
         }
         
         .correctness.true {
             color: var(--success-color);
+            background-color: rgba(46, 204, 113, 0.1);
         }
         
         .correctness.false {
             color: var(--danger-color);
+            background-color: rgba(231, 76, 60, 0.1);
         }
         
-        .back-btn {
+        .btn {
             display: inline-block;
-            padding: 10px 20px;
+            padding: 12px 24px;
             background-color: var(--primary-color);
             color: white;
             text-decoration: none;
-            border-radius: 5px;
-            font-weight: 600;
+            border-radius: 6px;
+            margin-top: 30px;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s;
+            text-align: center;
+            width: 100%;
         }
         
-        .back-btn:hover {
+        .btn:hover {
             background-color: var(--secondary-color);
+        }
+        
+        .recommendation {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            font-style: italic;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            .result-score {
+                font-size: 28px;
+            }
+            
+            .result-status {
+                font-size: 18px;
+            }
+            
+            .detail-item {
+                min-width: 100%;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="result-header">
-            <h1>Assessment Results</h1>
+            <h1 class="result-title">Assessment Results</h1>
             <h2><%= result.get("assessment_name") %></h2>
             
             <div class="result-score">
@@ -200,8 +268,25 @@
             </div>
         </div>
         
+        <div class="result-details">
+            <div class="detail-item">
+                <div class="detail-label">Result ID</div>
+                <div class="detail-value"><%= resultId %></div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">Date</div>
+                <div class="detail-value"><%= new java.util.Date() %></div>
+            </div>
+        </div>
+        
+        <% if (result.get("recommendation") != null && !result.get("recommendation").isEmpty()) { %>
+            <div class="recommendation">
+                <strong>Recommendation:</strong> <%= result.get("recommendation") %>
+            </div>
+        <% } %>
+        
         <div class="answers-summary">
-            <h3>Question Review</h3>
+            <h3 class="answers-title">Question Review</h3>
             
             <% for (int i = 0; i < answers.size(); i++) { 
                 Map<String, String> answer = answers.get(i);
@@ -209,7 +294,14 @@
             %>
                 <div class="answer-item <%= isCorrect ? "true" : "false" %>">
                     <div class="question-text">Q<%= i+1 %>. <%= answer.get("text") %></div>
-                    <div class="user-answer">Your answer: <%= answer.get("answer") %></div>
+                    <div class="user-answer">
+                        <strong>Your answer:</strong> 
+                        <% if (answer.get("answer") != null) { %>
+                            <%= "MCQ".equals(answer.get("type")) ? "Option " + answer.get("answer") : answer.get("answer") %>
+                        <% } else { %>
+                            Not answered
+                        <% } %>
+                    </div>
                     <div class="correctness <%= isCorrect ? "true" : "false" %>">
                         <%= isCorrect ? "✓ Correct" : "✗ Incorrect" %>
                     </div>
@@ -217,7 +309,7 @@
             <% } %>
         </div>
         
-        <a href="homepage.jsp" class="back-btn">Back to Home</a>
+        <a href="homepage.jsp" class="btn">Back to Home</a>
     </div>
 </body>
 </html>
