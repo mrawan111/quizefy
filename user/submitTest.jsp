@@ -8,7 +8,7 @@
     int assessmentId = 0;
     String[] testIds = null;
     double totalScore = 0.0;
-    int totalQuestions = 0;
+    double totalPossibleScore = 0.0;
     String errorMessage = null;
     List<Integer> testResultIds = new ArrayList<>();
 
@@ -44,7 +44,7 @@
                 int testId = Integer.parseInt(testIdStr);
                 int testResultId = 0;
                 double testScore = 0.0;
-                int testQuestions = 0;
+                double testPossibleScore = 0.0;
 
                 // 1. Insert into test_results
                 String insertResultSQL = "INSERT INTO test_results (user_id, test_id, assessment_id, score, status, recommendation) " +
@@ -79,8 +79,8 @@
                             questionIds.add(questionId);
                             questionWeights.put(questionId, weight);
                             questionTypes.put(questionId, questionType);
-                            testQuestions++;
-                            totalQuestions++;
+                            testPossibleScore += weight;
+                            totalPossibleScore += weight;
                         }
                     }
                 }
@@ -92,7 +92,7 @@
                     String submittedAnswer = null;
 
                     if ("MCQ".equals(questionType)) {
-                        // Handle MCQ questions
+                        // Handle MCQ questions with weighted scoring
                         String selectedOptionIdStr = request.getParameter("q_" + questionId);
                         Integer selectedOptionId = (selectedOptionIdStr != null && !selectedOptionIdStr.isEmpty())
                             ? Integer.parseInt(selectedOptionIdStr) : null;
@@ -106,14 +106,19 @@
                                 try (ResultSet rs = checkPs.executeQuery()) {
                                     if (rs.next()) {
                                         isCorrect = rs.getBoolean("is_correct");
+                                        if (isCorrect) {
+                                            double weight = questionWeights.get(questionId);
+                                            testScore += weight;
+                                            totalScore += weight;
+                                        }
                                     }
                                 }
                             }
                         }
                     } else {
-                        // Handle text questions
+                        // Handle text questions (default to 0 score)
                         submittedAnswer = request.getParameter("q_" + questionId);
-                        isCorrect = false; // Default for text questions
+                        isCorrect = false;
                     }
 
                     // Insert into answers table
@@ -129,23 +134,16 @@
                         answerPs.setBoolean(4, isCorrect);
                         answerPs.executeUpdate();
                     }
-
-                    // Add score if correct
-                    if (isCorrect) {
-                        double weight = questionWeights.getOrDefault(questionId, 0.0);
-                        testScore += weight;
-                        totalScore += weight;
-                    }
                 }
 
-                // 4. Update test_result with final score and recommendation
-                double testPercentage = (testQuestions > 0) ? (testScore / testQuestions) * 100 : 0;
+                // 4. Update test_result with final weighted score and recommendation
+                double testPercentage = (testPossibleScore > 0) ? (testScore / testPossibleScore) * 100 : 0;
                 String testRecommendation = (testPercentage >= 50) ? "Pass" : "Fail";
                 String status = "Completed";
                 
                 String updateResultSQL = "UPDATE test_results SET score = ?, status = ?, recommendation = ? WHERE id = ?";
                 try (PreparedStatement updatePs = conn.prepareStatement(updateResultSQL)) {
-                    updatePs.setDouble(1, testScore);
+                    updatePs.setDouble(1, testPercentage);  // Store actual weighted score
                     updatePs.setString(2, status);
                     updatePs.setString(3, testRecommendation);
                     updatePs.setInt(4, testResultId);
@@ -370,7 +368,7 @@
                 <a href="javascript:history.back()" class="btn">Go Back</a>
             </div>
         <% } else { 
-            double percentage = (totalQuestions > 0) ? (totalScore / totalQuestions) * 100 : 0;
+            double percentage = (totalPossibleScore > 0) ? (totalScore / totalPossibleScore) * 100 : 0;
             boolean passed = percentage >= 50;
         %>
             <div class="result-header">
@@ -379,7 +377,7 @@
             
             <div class="result-card <%= passed ? "pass" : "fail" %>">
                 <div class="score-display">
-                    <%= (int)totalScore %> / <%= totalQuestions %>
+                    <%= String.format("%.1f", totalScore) %> / <%= String.format("%.1f", totalPossibleScore) %>
                 </div>
                 <div class="percentage">
                     <%= String.format("%.1f", percentage) %>%
@@ -416,7 +414,7 @@
                 </div>
             </div>
             
-            <a href="results.jsp?result_id=<%= !testResultIds.isEmpty() ? testResultIds.get(0) : 0 %>" class="btn">View Detailed Results</a>
+            <a href="testResultDetails.jsp?result_id=<%= !testResultIds.isEmpty() ? testResultIds.get(0) : 0 %>" class="btn">View Detailed Results</a>
         <% } %>
     </div>
 </body>

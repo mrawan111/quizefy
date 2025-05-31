@@ -73,7 +73,6 @@
             int id = Integer.parseInt(editId);
             editAssessment = manager.getAssessmentById(id);
         } catch (NumberFormatException e) {
-            error = "Invalid assessment ID";
         }
     }
 %>

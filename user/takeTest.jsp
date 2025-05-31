@@ -275,10 +275,7 @@
                 <h1 class="test-title"><%= assessmentName %></h1>
             </div>
             
-            <div class="timer-container">
-                <div class="timer" id="timer">Time remaining: 30:00</div>
-                <div class="progress-indicator" id="progress-indicator">Question 1 of <%= questions.size() %></div>
-            </div>
+        
             
             <form id="testForm" action="submitTest.jsp" method="post">
                 <input type="hidden" name="assessment_id" value="<%= assessmentId %>">

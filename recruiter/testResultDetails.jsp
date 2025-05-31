@@ -4,7 +4,7 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 
 <%
-    int resultId = Integer.parseInt(request.getParameter("id"));
+int resultId = Integer.parseInt(request.getParameter("result_id"));
     TestResult result = ReportService.getTestResultById(resultId);
     SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
 %>

@@ -4,7 +4,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sign Up - Test Track</title>
+    <title>Sign Up - Quizefy</title>
     <style>
         body {
             background-color: #f0f8ff;
@@ -76,7 +76,7 @@
 </head>
 <body>
 
-<div class="header">Test Track</div>
+<div class="header">Quizefy</div>
 
 <div class="container">
     <div class="login-box">
